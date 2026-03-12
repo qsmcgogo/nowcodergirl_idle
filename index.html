@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>牛客娘挂机游戏</title>
+  <link rel="icon" type="image/png" href="pics/icon.png">
+  <link rel="apple-touch-icon" href="pics/icon.png">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="game-container">
+    <!-- 左半部分：操作区 -->
+    <aside class="operation-panel">
+      <header class="panel-header">
+        <button class="panel-back-btn hidden" id="btn-panel-back" type="button">返回</button>
+        <div class="panel-tabs">
+          <button class="panel-tab active" id="tab-daily" data-tab="daily">日常</button>
+          <button class="panel-tab inspiration-unlockable locked" id="tab-campaign" data-tab="campaign">关卡</button>
+          <button class="panel-tab inspiration-unlockable locked tooltip-btn" id="tab-skilltree" data-tab="skilltree"
+            data-tooltip="首次获得灵感后可进入，第一章全部通关后点亮第一层">技能树</button>
+        </div>
+      </header>
+
+      <div class="panel-tab-content" id="panel-daily">
+      <section class="resources">
+        <h2>资源</h2>
+        <div class="resource-item" data-resource="thinking">
+          <span class="resource-name">思维力</span>
+          <span class="resource-value" id="thinking-power">0</span>
+          <span class="resource-rate" id="thinking-rate">0/s</span>
+        </div>
+        <div class="resource-item focus-unlockable locked" data-resource="focus" id="focus-resource">
+          <span class="resource-name">专注力</span>
+          <span class="resource-value" id="focus-power">0</span>
+          <span class="resource-rate" id="focus-rate">0/s</span>
+        </div>
+        <div class="resource-item inspiration-unlockable locked" data-resource="inspiration" id="inspiration-resource">
+          <span class="resource-name">灵感</span>
+          <span class="resource-value" id="inspiration-power">0</span>
+        </div>
+      </section>
+
+      <section class="learning-section">
+        <h2>学习</h2>
+        <p class="current-activity" id="current-activity">空闲中...</p>
+        <div class="learning-buttons">
+          <button class="action-btn tooltip-btn" id="btn-collect-thinking" data-action="thinking"
+            data-tooltip="牛客娘练习思维">
+            收集思维力
+          </button>
+          <button class="action-btn focus-unlockable locked tooltip-btn" id="btn-collect-focus" data-action="focus"
+            data-tooltip="牛客娘练习专注">
+            收集专注力
+          </button>
+          <button class="action-btn running-unlockable locked tooltip-btn" id="btn-collect-running" data-action="running"
+            data-tooltip="牛客娘跑步恢复，血量 +3/秒（专注力 -0.5/秒，耗尽自动停止；仅在受伤恢复时有效）">
+            跑步
+          </button>
+        </div>
+      </section>
+
+      <section class="research-section practice-unlockable locked" id="practice-section">
+        <h2>研究</h2>
+        <div class="practice-buttons" id="practice-buttons">
+          <button class="action-btn tooltip-btn tooltip-research" id="btn-learn-practice"
+            data-tooltip-type="practice">练习</button>
+          <button class="action-btn running-research-unlockable locked tooltip-btn tooltip-research" id="btn-learn-running"
+            data-tooltip-type="running">跑步</button>
+          <button class="action-btn auto-practice-unlockable locked tooltip-btn tooltip-research" id="btn-learn-autopractice"
+            data-tooltip-type="autopractice">自动练习</button>
+        </div>
+      </section>
+      </div>
+
+      <div class="panel-tab-content hidden" id="panel-campaign">
+        <section class="campaign-summary">
+          <h2>World 0</h2>
+          <p class="campaign-summary-text" id="campaign-summary-text">右侧会显示关卡地图。点击小方块可进入关卡，完成或放弃后可返回地图。</p>
+        </section>
+      </div>
+
+      <div class="panel-tab-content hidden" id="panel-skilltree">
+        <section class="skilltree-placeholder skilltree-locked-placeholder" id="skilltree-placeholder">
+          <p>通关第一章后解锁技能树第一层</p>
+        </section>
+        <section class="skilltree-content hidden" id="skilltree-content">
+          <div class="skilltree-layer">
+            <button class="action-btn tooltip-btn tooltip-skilltree" id="btn-upgrade-grammar"
+              data-tooltip-type="skill-grammar">语法 Lv.<em id="skill-grammar-lv">0</em></button>
+            <button class="action-btn tooltip-btn tooltip-skilltree" id="btn-upgrade-math"
+              data-tooltip-type="skill-math">数学 Lv.<em id="skill-math-lv">0</em></button>
+          </div>
+          <div class="skilltree-divider">— — — — — — — — — —</div>
+        </section>
+      </div>
+    </aside>
+
+    <!-- 右半部分：展示区 -->
+    <main class="display-panel">
+      <div class="display-content" id="display-content">
+        <div class="placeholder" id="display-placeholder">
+          <p>牛客娘正在等待指令...</p>
+        </div>
+        <div class="activity-display hidden" id="activity-display">
+          <div class="avatar-area">
+            <img class="avatar" id="avatar" src="pics/learning.png" alt="牛客娘">
+          </div>
+          <p class="activity-text" id="activity-text"></p>
+          <p class="activity-rate" id="activity-rate"></p>
+        </div>
+
+        <div class="campaign-display hidden" id="campaign-display">
+          <div class="campaign-map-view" id="campaign-map-view">
+            <div class="campaign-map-header">
+              <div class="campaign-map-header-row">
+                <div>
+                  <p class="campaign-kicker">World 0</p>
+                  <h2 class="campaign-title">World 0</h2>
+                </div>
+                <span class="campaign-total-stars tooltip-btn" id="campaign-total-stars" data-tooltip="攻击 +0%&#10;血量 +0%">
+                  ⭐ × <em id="campaign-total-stars-value">0</em>
+                </span>
+              </div>
+              <p class="campaign-description" id="campaign-map-description">点击地图中的小方块进入关卡。未来这里会扩展出分支路线。</p>
+            </div>
+            <div class="campaign-map-board">
+              <div class="campaign-map-path"></div>
+              <div class="campaign-node-grid" id="campaign-node-grid"></div>
+            </div>
+            <p class="campaign-map-meta" id="campaign-map-meta"></p>
+          </div>
+
+          <div class="campaign-stage-view hidden" id="campaign-stage-view">
+            <div class="campaign-stage-topbar">
+              <button class="action-btn campaign-back-btn" id="btn-campaign-back" type="button">返回地图</button>
+            </div>
+
+            <div class="campaign-display-card">
+              <p class="campaign-kicker" id="campaign-kicker">World 0</p>
+              <h2 class="campaign-title" id="campaign-title">Stage 0-1 · 第一声心跳</h2>
+              <p class="campaign-description" id="campaign-description"></p>
+
+              <div class="campaign-stage-stats">
+                <span class="campaign-stat-pill">操作数 <em id="campaign-op-count">0</em></span>
+                <span class="campaign-stat-pill">最佳 <em id="campaign-best-op">-</em></span>
+                <span class="campaign-stat-pill">星级条件 <em id="campaign-star-rule">≤ 2 次</em></span>
+              </div>
+
+              <div class="campaign-balance-board" id="campaign-balance-board">
+                <div class="campaign-balance-beam" aria-hidden="true"></div>
+                <div class="campaign-balance-pillar" aria-hidden="true"></div>
+                <div class="campaign-balance-pan">
+                  <div class="campaign-drop-zone" id="campaign-left-zone" data-zone="left"></div>
+                </div>
+                <div class="campaign-balance-center" aria-hidden="true"></div>
+                <div class="campaign-balance-pan">
+                  <div class="campaign-fixed-zone" id="campaign-right-zone" data-zone="right"></div>
+                </div>
+              </div>
+
+              <div class="campaign-stock-wrap">
+                <span class="campaign-question-label">拖拽区</span>
+                <div class="campaign-drop-zone campaign-stock-zone" id="campaign-stock-zone" data-zone="stock"></div>
+              </div>
+
+              <p class="campaign-feedback" id="campaign-feedback"></p>
+              <p class="campaign-reward" id="campaign-reward"></p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 学会练习后：属性 | 战斗记录 | 攻血 | 地图 -->
+        <div class="practice-display hidden" id="practice-display">
+          <!-- 1. 属性栏 -->
+          <div class="practice-block attributes-block">
+            <span class="attr-help tooltip-btn tooltip-multiline" id="attr-formula-help" data-tooltip="攻击 = 思维 × 知识点 × 手速&#10;血量 = 码力 × 耐力">?</span>
+            <div class="attr-row">
+              <span class="attr-item">思维 <em id="attr-siwei">1</em></span>
+              <span class="attr-item">知识点 <em id="attr-zhishi">1</em></span>
+              <span class="attr-item">手速 <em id="attr-shousu">1</em></span>
+              <span class="attr-item">码力 <em id="attr-mali">1</em></span>
+              <span class="attr-item">耐力 <em id="attr-naili">10</em></span>
+            </div>
+            <div class="attr-row inspiration-unlockable locked" id="attr-inspiration-rate">
+              <span class="attr-item">灵感掉率 <em id="attr-inspiration-rate-val">50%</em></span>
+            </div>
+          </div>
+
+          <!-- 2. 战斗记录 -->
+          <div class="practice-block battle-log-block">
+            <div class="battle-log-text" id="battle-log" aria-label="战斗记录"></div>
+          </div>
+
+          <!-- 3. 攻血栏（挑战按钮移到左侧地图栏） -->
+          <div class="practice-block combat-block">
+            <div class="combat-grid">
+              <div class="combat-col">
+                <div class="combat-head">
+                  <img class="combat-avatar-icon" src="pics/icon.png" alt="">
+                  <span class="combat-label">牛客娘</span>
+                </div>
+                <p class="combat-stat">攻击：<span id="combat-atk-self">1</span></p>
+                <div class="hp-bar-wrap">
+                  <span class="hp-text" id="hp-text-self">10/10</span>
+                  <div class="hp-bar" id="hp-bar-self">
+                    <div class="hp-fill" id="hp-fill-self"></div>
+                  </div>
+                </div>
+              </div>
+              <div class="combat-col">
+                <div class="combat-head">
+                  <span class="combat-label" id="combat-question-label">—</span>
+                </div>
+                <p class="combat-stat">攻击：<span id="combat-atk-enemy">0</span></p>
+                <div class="hp-bar-wrap">
+                  <span class="hp-text" id="hp-text-enemy">—</span>
+                  <div class="hp-bar" id="hp-bar-enemy">
+                    <div class="hp-fill" id="hp-fill-enemy"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 4. 地图（左侧挑战栏 + 题目网格） -->
+          <div class="practice-block map-block">
+            <div class="map-left">
+              <button class="challenge-column-btn" id="btn-challenge" disabled>练习</button>
+              <button class="auto-challenge-btn auto-challenge-on hidden" id="btn-auto-challenge" title="点击关闭自动练习">自动练习</button>
+            </div>
+            <div class="map-right">
+              <p class="exam-label" id="exam-label">试卷1</p>
+              <div class="questions-grid" id="questions-grid"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- 底部存档菜单 -->
+  <div class="save-menu" id="save-menu">
+    <button class="save-menu-btn" id="btn-auto-save" title="保存到浏览器缓存">自动保存</button>
+    <button class="save-menu-btn" id="btn-export" title="导出 Base64 存档">保存</button>
+    <button class="save-menu-btn" id="btn-import" title="从 Base64 加载存档">加载</button>
+    <button class="save-menu-btn save-menu-btn-reset" id="btn-reset" title="重置所有数据">重置数据</button>
+    <button class="save-menu-btn" id="btn-version" title="查看版本更新">版本 1.0.0</button>
+  </div>
+
+  <!-- 保存对话框：显示 Base64，可复制 -->
+  <div class="modal hidden" id="modal-export">
+    <div class="modal-content">
+      <h3>导出存档</h3>
+      <p class="modal-hint">复制下方内容即可备份存档，也可以直接保存为 txt 文件</p>
+      <textarea class="modal-textarea" id="export-textarea" readonly></textarea>
+      <p class="modal-status" id="export-status"></p>
+      <button class="modal-btn" id="btn-copy">一键复制</button>
+      <button class="modal-btn" id="btn-save-file">保存为文件</button>
+      <button class="modal-btn modal-btn-close" id="btn-close-export">关闭</button>
+    </div>
+  </div>
+
+  <!-- 加载对话框：输入 Base64，加载 -->
+  <div class="modal hidden" id="modal-import">
+    <div class="modal-content">
+      <h3>加载存档</h3>
+      <p class="modal-hint">粘贴导出的 Base64 存档内容，或直接选择 txt 存档文件</p>
+      <textarea class="modal-textarea" id="import-textarea" placeholder="粘贴 Base64 存档内容..."></textarea>
+      <p class="modal-status" id="import-status"></p>
+      <input class="modal-file-input" id="import-file-input" type="file" accept=".txt,text/plain">
+      <button class="modal-btn" id="btn-load-file">选择 txt 文件</button>
+      <button class="modal-btn" id="btn-load">加载</button>
+      <button class="modal-btn modal-btn-close" id="btn-close-import">关闭</button>
+    </div>
+  </div>
+
+  <!-- 版本更新日志 -->
+  <div class="modal hidden" id="modal-version">
+    <div class="modal-content">
+      <h3>版本更新</h3>
+      <div class="changelog-content">
+        <div class="changelog-version">
+          <strong>v1.0.0</strong>
+          <ul>
+            <li>首次发布</li>
+            <li>挂机收集思维力、专注力、灵感</li>
+            <li>技能树系统（语法、数学）</li>
+            <li>练习模式、跑步恢复</li>
+            <li>试卷挑战与战斗系统</li>
+            <li>存档导入导出</li>
+          </ul>
+        </div>
+      </div>
+      <button class="modal-btn modal-btn-close" id="btn-close-version">关闭</button>
+    </div>
+  </div>
+
+  <div class="modal hidden" id="modal-campaign-success">
+    <div class="modal-content modal-content-campaign-success">
+      <h3>通关成功</h3>
+      <div class="campaign-success-stars" id="campaign-success-stars">⭐</div>
+      <p class="campaign-success-line">已用操作数：<strong id="campaign-success-ops">0</strong></p>
+      <p class="campaign-success-line">满星要求：<strong id="campaign-success-rule">≤ 2 次</strong></p>
+      <p class="campaign-success-line">获得星星：<strong id="campaign-success-star-count">⭐ × 0</strong></p>
+      <button class="modal-btn" id="btn-campaign-success-confirm">返回地图</button>
+    </div>
+  </div>
+
+  <div class="tooltip-floating" id="tooltip-floating"></div>
+
+  <script src="js/utils.js"></script>
+  <script src="js/resources.js"></script>
+  <script src="js/campaign/data.js"></script>
+  <script src="js/campaign/core.js"></script>
+  <script src="js/skilltree.js"></script>
+  <script src="js/attributes.js"></script>
+  <script src="js/exam.js"></script>
+  <script src="js/battle.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/save.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
