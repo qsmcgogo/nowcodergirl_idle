@@ -32,6 +32,9 @@
   let campaignMapDirty = true;
   let campaignBoardSignature = '';
   let campaignStageSession = createCampaignStageSession();
+  let _pointerDrag = null;
+  let selectedCardDefId = null;
+  let cardsGridSignature = '';
 
   function markCampaignMapDirty() {
     campaignMapDirty = true;
@@ -108,6 +111,19 @@
     const tabCampaign = document.getElementById('tab-campaign');
     if (tabCampaign) {
       tabCampaign.disabled = !Resources.isCampaignUnlocked();
+    }
+    const tabCards = document.getElementById('tab-cards');
+    if (tabCards) {
+      const cardsUnlocked = Cards.isUnlocked();
+      if (cardsUnlocked) {
+        tabCards.classList.remove('locked');
+        tabCards.classList.add('revealed');
+        tabCards.disabled = false;
+      } else {
+        tabCards.classList.add('locked');
+        tabCards.classList.remove('revealed');
+        tabCards.disabled = true;
+      }
     }
     const ph = document.getElementById('skilltree-placeholder');
     const stc = document.getElementById('skilltree-content');
@@ -515,10 +531,7 @@
         `<span class="campaign-node-star">${(state.stars || 0) > 0 ? '⭐' : '☆'}</span>`;
       button.addEventListener('click', () => {
         if (!Resources.isCampaignUnlocked()) return;
-        if (!Campaign.selectStage(def.id)) return;
-        resetCampaignStageSession();
-        campaignStageViewOpen = true;
-        refreshUI();
+        enterStage(def.id);
       });
       container.appendChild(button);
     });
@@ -535,25 +548,35 @@
   function createCampaignDraggableBall(zone, clickTargetZone) {
     const ball = document.createElement('div');
     ball.className = 'campaign-ball draggable';
-    ball.draggable = !campaignStageSession.completed;
     ball.dataset.zone = zone;
-    ball.addEventListener('dragstart', (e) => {
+    ball.addEventListener('pointerdown', (e) => {
       if (campaignStageSession.completed) return;
-      campaignDragSource = { zone };
-      if (e.dataTransfer) {
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/plain', zone);
-      }
-    });
-    ball.addEventListener('dragend', () => {
-      campaignDragSource = null;
-    });
-    ball.addEventListener('click', () => {
-      if (campaignStageSession.completed) return;
-      campaignDragSource = { zone };
-      moveCampaignBall(clickTargetZone);
-      campaignDragSource = null;
-      refreshUI();
+      e.preventDefault();
+      const rect = ball.getBoundingClientRect();
+      const clone = ball.cloneNode(false);
+      clone.style.cssText = [
+        'position:fixed',
+        `width:${rect.width}px`,
+        `height:${rect.height}px`,
+        `left:${rect.left}px`,
+        `top:${rect.top}px`,
+        'pointer-events:none',
+        'opacity:0.85',
+        'z-index:9999',
+        'transition:none',
+      ].join(';');
+      document.body.appendChild(clone);
+      _pointerDrag = {
+        ballZone: zone,
+        clickTargetZone,
+        clone,
+        offsetX: e.clientX - rect.left,
+        offsetY: e.clientY - rect.top,
+        startX: e.clientX,
+        startY: e.clientY,
+        moved: false,
+        activeZone: null,
+      };
     });
     return ball;
   }
@@ -617,10 +640,20 @@
       campaignSuccessModalState = {
         operations: campaignStageSession.operations,
         starRule: '<= ' + (Campaign.getStageDef(Campaign.selectedStageId)?.starOpLimit ?? '-') + ' 次',
-        gainedStars: result.gainedStars ?? 0
+        gainedStars: result.gainedStars ?? 0,
+        cardReward: result.cardReward ?? null
       };
       markCampaignMapDirty();
-      openCampaignSuccessModal();
+      // 首次通关且有通关剧情：先播剧情再弹结算
+      const stageId = Campaign.selectedStageId;
+      const stageDef = Campaign.getStageDef(stageId);
+      if (result.firstClear && stageDef?.story?.clearLines?.length) {
+        startStory(stageId, stageDef.story.clearLines, null, () => {
+          openCampaignSuccessModal();
+        });
+      } else {
+        openCampaignSuccessModal();
+      }
     } else {
       campaignStageFeedbackType = '';
       campaignStageFeedback = '';
@@ -641,6 +674,25 @@
     if (starsEl) {
       starsEl.textContent = campaignSuccessModalState.gainedStars > 0 ? '⭐' : '☆';
     }
+
+    const cardRewardEl  = document.getElementById('campaign-success-card-reward');
+    const cardItemEl    = document.getElementById('campaign-success-card-item');
+    const cardDefId     = campaignSuccessModalState.cardReward;
+    const cardDef       = cardDefId ? CardDefs[cardDefId] : null;
+    if (cardRewardEl) {
+      if (cardDef) {
+        cardRewardEl.classList.remove('hidden');
+        if (cardItemEl) {
+          cardItemEl.innerHTML = `
+            <span class="card-reward-icon">${cardDef.icon}</span>
+            <span class="card-reward-name">${cardDef.name}</span>
+            <span class="card-reward-rarity" data-rarity="${cardDef.rarity}">${RARITY_LABELS[cardDef.rarity] || cardDef.rarity}</span>`;
+        }
+      } else {
+        cardRewardEl.classList.add('hidden');
+      }
+    }
+
     modal.classList.remove('hidden');
   }
 
@@ -654,6 +706,133 @@
       refreshUI();
     }
   }
+
+  /* ---- 剧情演出系统 ---- */
+  const storyState = {
+    active: false,
+    lines: [],
+    summary: '',
+    lineIndex: 0,
+    typing: false,
+    typingTimer: null,
+    onFinish: null
+  };
+
+  function startStory(stageId, lines, summary, onFinish) {
+    if (!lines || lines.length === 0) { onFinish?.(); return; }
+    storyState.active = true;
+    storyState.lines = lines;
+    storyState.summary = summary || '';
+    storyState.lineIndex = 0;
+    storyState.onFinish = onFinish || null;
+    const overlay = document.getElementById('story-overlay');
+    const skipConfirm = document.getElementById('story-skip-confirm');
+    if (skipConfirm) skipConfirm.classList.add('hidden');
+    if (overlay) overlay.classList.remove('hidden');
+    showStoryLine(0);
+  }
+
+  function showStoryLine(index) {
+    const speakerEl = document.getElementById('story-speaker');
+    const textEl = document.getElementById('story-text');
+    if (!speakerEl || !textEl) return;
+    const line = storyState.lines[index];
+    if (!line) { endStory(); return; }
+    speakerEl.textContent = line.speaker || '';
+    // 打字机效果
+    textEl.textContent = '';
+    textEl.classList.add('typing');
+    storyState.typing = true;
+    let charIndex = 0;
+    const fullText = line.text || '';
+    clearInterval(storyState.typingTimer);
+    storyState.typingTimer = setInterval(() => {
+      if (charIndex < fullText.length) {
+        textEl.textContent = fullText.slice(0, charIndex + 1);
+        charIndex++;
+      } else {
+        clearInterval(storyState.typingTimer);
+        storyState.typing = false;
+        textEl.classList.remove('typing');
+      }
+    }, 35);
+  }
+
+  function advanceStory() {
+    if (!storyState.active) return;
+    // 如果正在打字，先完成当前行
+    if (storyState.typing) {
+      clearInterval(storyState.typingTimer);
+      storyState.typing = false;
+      const textEl = document.getElementById('story-text');
+      const line = storyState.lines[storyState.lineIndex];
+      if (textEl && line) {
+        textEl.textContent = line.text || '';
+        textEl.classList.remove('typing');
+      }
+      return;
+    }
+    storyState.lineIndex++;
+    if (storyState.lineIndex >= storyState.lines.length) {
+      endStory();
+    } else {
+      showStoryLine(storyState.lineIndex);
+    }
+  }
+
+  function endStory() {
+    clearInterval(storyState.typingTimer);
+    storyState.active = false;
+    storyState.typing = false;
+    const overlay = document.getElementById('story-overlay');
+    if (overlay) overlay.classList.add('hidden');
+    storyState.onFinish?.();
+  }
+
+  function showStorySkipConfirm() {
+    const confirmEl = document.getElementById('story-skip-confirm');
+    const summaryEl = document.getElementById('story-skip-summary');
+    if (summaryEl) {
+      if (storyState.summary) {
+        summaryEl.textContent = storyState.summary;
+        summaryEl.style.display = '';
+      } else {
+        summaryEl.style.display = 'none';
+      }
+    }
+    if (confirmEl) confirmEl.classList.remove('hidden');
+  }
+
+  function hideStorySkipConfirm() {
+    const confirm = document.getElementById('story-skip-confirm');
+    if (confirm) confirm.classList.add('hidden');
+  }
+
+  function enterStage(stageId) {
+    if (!Campaign.selectStage(stageId)) return;
+    resetCampaignStageSession();
+
+    const def = Campaign.getStageDef(stageId);
+    const state = Campaign.getStageState(stageId);
+
+    if (def?.story && !state.introSeen) {
+      state.introSeen = true;
+      startStory(stageId, def.story.lines, def.story.summary, () => {
+        campaignStageViewOpen = true;
+        refreshUI();
+      });
+    } else {
+      campaignStageViewOpen = true;
+      refreshUI();
+    }
+  }
+
+  function playClearStory(stageId) {
+    const def = Campaign.getStageDef(stageId);
+    if (!def?.story?.clearLines || def.story.clearLines.length === 0) return;
+    startStory(stageId, def.story.clearLines, null, null);
+  }
+  /* ---- /剧情演出系统 ---- */
 
   function setTemporaryButtonText(button, text, fallback, duration = 1500) {
     if (!button) return;
@@ -737,6 +916,145 @@
     }
   }
 
+  function updateCardsPanel() {
+    const slotsEl = document.getElementById('cards-slots');
+    if (!slotsEl) return;
+
+    slotsEl.innerHTML = '';
+    for (let i = 0; i < Cards.SLOT_COUNT; i++) {
+      const defId = Cards.slots[i];
+      const def = defId ? CardDefs[defId] : null;
+      const level = defId ? Cards.getHighestLevel(defId) : 0;
+      const slotDiv = document.createElement('div');
+      slotDiv.className = 'cards-slot' + (def ? ' filled' : '');
+      if (def) {
+        slotDiv.dataset.rarity = def.rarity;
+        slotDiv.innerHTML = `
+          <span class="cards-slot-icon">${def.icon}</span>
+          <span class="cards-slot-name">${def.name}</span>
+          <span class="cards-slot-level">Lv.${level}</span>`;
+      } else {
+        slotDiv.innerHTML = `
+          <span class="cards-slot-icon" style="opacity:0.2;font-size:1.8rem">□</span>
+          <span class="cards-slot-empty-label">空槽</span>`;
+      }
+      slotsEl.appendChild(slotDiv);
+    }
+
+    const attrsEl = document.getElementById('cards-attrs-zone');
+    if (attrsEl) {
+      const b = Cards.getBonuses();
+      attrsEl.innerHTML = `
+        <div class="cards-section-label">卡片加成</div>
+        <div class="cards-attr-row"><span>攻击</span><span class="cards-attr-val">+${b.atkPercent.toFixed(1)}%</span></div>
+        <div class="cards-attr-row"><span>血量</span><span class="cards-attr-val">+${b.hpPercent.toFixed(1)}%</span></div>`;
+    }
+  }
+
+  function renderCardDetail() {
+    const emptyEl  = document.getElementById('cards-detail-empty');
+    const contentEl = document.getElementById('cards-detail-content');
+    if (!emptyEl || !contentEl) return;
+
+    const defId = selectedCardDefId;
+    const def = defId ? CardDefs[defId] : null;
+    const entry = defId ? Cards.getEntry(defId) : null;
+
+    const paneEl = document.getElementById('cards-detail-pane');
+    if (!def || !entry) {
+      if (paneEl) paneEl.classList.add('hidden');
+      contentEl.classList.add('hidden');
+      return;
+    }
+    if (paneEl) paneEl.classList.remove('hidden');
+    emptyEl.classList.add('hidden');
+    contentEl.classList.remove('hidden');
+
+    const level = Cards.getHighestLevel(defId);
+    document.getElementById('cards-detail-icon').textContent = def.icon;
+    document.getElementById('cards-detail-name').textContent = def.name;
+    const typeEl = document.getElementById('cards-detail-type');
+    if (typeEl) typeEl.textContent = def.type || '';
+    const rarityEl = document.getElementById('cards-detail-rarity');
+    if (rarityEl) {
+      rarityEl.textContent = RARITY_LABELS[def.rarity] || def.rarity;
+      rarityEl.dataset.rarity = def.rarity;
+    }
+    const descEl = document.getElementById('cards-detail-desc');
+    if (descEl) descEl.textContent = def.description || '';
+
+    const levelsEl = document.getElementById('cards-detail-levels');
+    if (levelsEl) {
+      levelsEl.innerHTML = '';
+      // 展示到当前最高等级 +1（预览下一级），至少展示 1 级
+      const showLevels = Math.max(level + 1, 1);
+      for (let i = 0; i < showLevels; i++) {
+        const lv = i + 1;
+        const bonus = Cards.getLevelBonus(defId, lv);
+        const row = document.createElement('div');
+        row.className = 'cards-level-row' + (lv === level ? ' active-level' : '');
+        const effectParts = [];
+        if (bonus.atkPercent) effectParts.push(`攻击 +${+bonus.atkPercent.toFixed(1)}%`);
+        if (bonus.hpPercent)  effectParts.push(`血量 +${+bonus.hpPercent.toFixed(1)}%`);
+        row.innerHTML = `
+          <span class="cards-level-badge">Lv.${lv}</span>
+          <span class="cards-level-effect">${effectParts.join(' · ') || '—'}</span>
+          <span class="cards-level-stacks">×${entry.stacks[i] || 0}</span>`;
+        levelsEl.appendChild(row);
+      }
+    }
+
+    const btnEquip   = document.getElementById('btn-card-equip');
+    const btnUnequip = document.getElementById('btn-card-unequip');
+    const btnMerge   = document.getElementById('btn-card-merge');
+    if (btnEquip)   btnEquip.disabled   = Cards.isSlotted(defId);
+    if (btnUnequip) btnUnequip.disabled = !Cards.isSlotted(defId);
+    if (btnMerge)   btnMerge.disabled   = !Cards.canMerge(defId);
+  }
+
+  function updateCardsDisplay() {
+    const isCards = activePanel === 'cards';
+    if (!isCards) return;
+
+    const grid = document.getElementById('cards-grid');
+    if (!grid) return;
+
+    const sig = JSON.stringify(Cards.owned.map(c => ({ d: c.defId, s: c.stacks })))
+      + '|' + JSON.stringify(Cards.slots) + '|' + selectedCardDefId;
+    if (sig !== cardsGridSignature) {
+      cardsGridSignature = sig;
+      grid.innerHTML = '';
+      Cards.owned.forEach(({ defId }) => {
+        const def = CardDefs[defId];
+        if (!def) return;
+        const level = Cards.getHighestLevel(defId);
+        const total = Cards.getTotalCount(defId);
+        const slotted = Cards.isSlotted(defId);
+        const item = document.createElement('div');
+        item.className = 'card-item' +
+          (defId === selectedCardDefId ? ' selected' : '') +
+          (slotted ? ' slotted' : '');
+        item.dataset.rarity = def.rarity;
+        item.dataset.defId = defId;
+        item.innerHTML = `
+          <span class="card-item-icon">${def.icon}</span>
+          <span class="card-item-name">${def.name}</span>
+          <span class="card-item-level">Lv.${level}</span>
+          <span class="card-item-count">×${total}</span>`;
+        item.addEventListener('click', () => {
+          selectedCardDefId = defId;
+          cardsGridSignature = '';
+          renderCardDetail();
+          updateCardsDisplay();
+        });
+        grid.appendChild(item);
+      });
+    }
+
+    renderCardDetail();
+    updateCardsPanel();
+  }
+
   function refreshUI() {
     updateResourceDisplay();
     updatePracticeDisplay();
@@ -745,6 +1063,8 @@
     updateExamDisplay();
     updateActivityDisplay();
     updateCampaignDisplay();
+    updateCardsDisplay();
+    updateCardsPanel();
   }
 
   function gameLoop() {
@@ -761,12 +1081,14 @@
     const tabs = {
       daily: document.getElementById('tab-daily'),
       campaign: document.getElementById('tab-campaign'),
-      skilltree: document.getElementById('tab-skilltree')
+      skilltree: document.getElementById('tab-skilltree'),
+      cards: document.getElementById('tab-cards')
     };
     const panels = {
       daily: document.getElementById('panel-daily'),
       campaign: document.getElementById('panel-campaign'),
-      skilltree: document.getElementById('panel-skilltree')
+      skilltree: document.getElementById('panel-skilltree'),
+      cards: document.getElementById('panel-cards')
     };
 
     Object.entries(tabs).forEach(([key, el]) => {
@@ -801,6 +1123,56 @@
         updateSkillTreeDisplay();
       });
     }
+    const tabCards = document.getElementById('tab-cards');
+    if (tabCards) {
+      tabCards.addEventListener('click', () => {
+        if (!Cards.isUnlocked()) return;
+        switchPanel('cards');
+      });
+    }
+
+    const panelCards = document.getElementById('panel-cards');
+    if (panelCards) {
+      panelCards.addEventListener('click', (e) => {
+        if (!e.target.closest('.card-item') && !e.target.closest('.cards-slot') &&
+            !e.target.closest('.cards-action-btn')) {
+          if (selectedCardDefId !== null) {
+            selectedCardDefId = null;
+            cardsGridSignature = '';
+            renderCardDetail();
+            updateCardsDisplay();
+          }
+        }
+      });
+    }
+
+    const btnCardEquip   = document.getElementById('btn-card-equip');
+    const btnCardUnequip = document.getElementById('btn-card-unequip');
+    const btnCardMerge   = document.getElementById('btn-card-merge');
+    if (btnCardEquip) {
+      btnCardEquip.addEventListener('click', () => {
+        if (selectedCardDefId && Cards.equip(selectedCardDefId, 0)) {
+          refreshUI();
+        }
+      });
+    }
+    if (btnCardUnequip) {
+      btnCardUnequip.addEventListener('click', () => {
+        if (selectedCardDefId) {
+          const slotIdx = Cards.slots.indexOf(selectedCardDefId);
+          if (slotIdx !== -1) Cards.unequip(slotIdx);
+          refreshUI();
+        }
+      });
+    }
+    if (btnCardMerge) {
+      btnCardMerge.addEventListener('click', () => {
+        if (selectedCardDefId && Cards.merge(selectedCardDefId)) {
+          refreshUI();
+        }
+      });
+    }
+
     if (btnPanelBack) {
       btnPanelBack.addEventListener('click', () => {
         campaignStageViewOpen = false;
@@ -847,25 +1219,45 @@
       });
     }
 
-    [campaignLeftZone, campaignRightZone, campaignStockZone].forEach((zoneEl) => {
-      if (!zoneEl) return;
-      zoneEl.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-        if (!campaignStageSession.completed) zoneEl.classList.add('drag-over');
+    const allDropZones = [campaignLeftZone, campaignRightZone, campaignStockZone].filter(Boolean);
+
+    document.addEventListener('pointermove', (e) => {
+      if (!_pointerDrag) return;
+      const { clone, offsetX, offsetY, startX, startY } = _pointerDrag;
+      if (!_pointerDrag.moved &&
+          (Math.abs(e.clientX - startX) > 4 || Math.abs(e.clientY - startY) > 4)) {
+        _pointerDrag.moved = true;
+      }
+      clone.style.left = (e.clientX - offsetX) + 'px';
+      clone.style.top = (e.clientY - offsetY) + 'px';
+      const hitZone = allDropZones.find((z) => {
+        const r = z.getBoundingClientRect();
+        return e.clientX >= r.left && e.clientX <= r.right &&
+               e.clientY >= r.top  && e.clientY <= r.bottom;
+      }) || null;
+      allDropZones.forEach((z) => {
+        z.classList.toggle('drag-over', z === hitZone && !campaignStageSession.completed);
       });
-      zoneEl.addEventListener('dragleave', () => {
-        zoneEl.classList.remove('drag-over');
-      });
-      zoneEl.addEventListener('drop', (e) => {
-        e.preventDefault();
-        zoneEl.classList.remove('drag-over');
-        if (!campaignDragSource) return;
-        moveCampaignBall(zoneEl.dataset.zone);
-        campaignDragSource = null;
-        refreshUI();
-      });
+      _pointerDrag.activeZone = hitZone;
     });
+
+    const _finishPointerDrag = () => {
+      if (!_pointerDrag) return;
+      const { ballZone, clickTargetZone, clone, moved, activeZone } = _pointerDrag;
+      document.body.removeChild(clone);
+      allDropZones.forEach((z) => z.classList.remove('drag-over'));
+      _pointerDrag = null;
+      if (campaignStageSession.completed) return;
+      const targetZone = moved && activeZone?.dataset?.zone
+        ? activeZone.dataset.zone
+        : clickTargetZone;
+      campaignDragSource = { zone: ballZone };
+      moveCampaignBall(targetZone);
+      campaignDragSource = null;
+      refreshUI();
+    };
+    document.addEventListener('pointerup', _finishPointerDrag);
+    document.addEventListener('pointercancel', _finishPointerDrag);
 
     if (BTN_THINKING) {
       BTN_THINKING.addEventListener('click', () => {
@@ -1049,6 +1441,41 @@
       if (e.target === modalVersion) modalVersion.classList.add('hidden');
     });
 
+    /* 剧情演出事件绑定 */
+    const storyOverlay = document.getElementById('story-overlay');
+    const storyScene = storyOverlay?.querySelector('.story-scene');
+    const storySkipBtn = document.getElementById('story-skip-btn');
+    const storySkipYes = document.getElementById('story-skip-yes');
+    const storySkipNo = document.getElementById('story-skip-no');
+
+    if (storyScene) storyScene.addEventListener('click', (e) => {
+      // 不要响应跳过按钮区域的点击
+      if (e.target.closest('.story-skip-btn') || e.target.closest('.story-skip-confirm')) return;
+      advanceStory();
+    });
+
+    if (storySkipBtn) storySkipBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      showStorySkipConfirm();
+    });
+
+    if (storySkipYes) storySkipYes.addEventListener('click', (e) => {
+      e.stopPropagation();
+      hideStorySkipConfirm();
+      endStory();
+    });
+
+    if (storySkipNo) storySkipNo.addEventListener('click', (e) => {
+      e.stopPropagation();
+      hideStorySkipConfirm();
+    });
+
+    const storySkipConfirmEl = document.getElementById('story-skip-confirm');
+    if (storySkipConfirmEl) storySkipConfirmEl.addEventListener('click', (e) => {
+      // 点击确认弹窗背景区域 = 取消
+      if (e.target === storySkipConfirmEl) hideStorySkipConfirm();
+    });
+
     const btnReset = document.getElementById('btn-reset');
     if (btnReset) {
       btnReset.addEventListener('click', () => {
@@ -1096,6 +1523,8 @@
         localStorage.removeItem(Save.CACHE_KEY);
         campaignStageViewOpen = false;
         campaignSuccessModalState = null;
+        selectedCardDefId = null;
+        Cards.reset();
         markCampaignMapDirty();
         closeCampaignSuccessModal(false);
         resetCampaignStageSession();

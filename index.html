@@ -19,6 +19,7 @@
           <button class="panel-tab inspiration-unlockable locked" id="tab-campaign" data-tab="campaign">关卡</button>
           <button class="panel-tab inspiration-unlockable locked tooltip-btn" id="tab-skilltree" data-tab="skilltree"
             data-tooltip="首次获得灵感后可进入，第一章全部通关后点亮第一层">技能树</button>
+          <button class="panel-tab cards-unlockable locked" id="tab-cards" data-tab="cards">卡片</button>
         </div>
       </header>
 
@@ -78,6 +79,49 @@
           <h2>World 0</h2>
           <p class="campaign-summary-text" id="campaign-summary-text">右侧会显示关卡地图。点击小方块可进入关卡，完成或放弃后可返回地图。</p>
         </section>
+      </div>
+
+      <div class="panel-tab-content hidden" id="panel-cards">
+        <!-- 上：装配区 + 总属性 -->
+        <div class="cards-top-row">
+          <div class="cards-equip-zone">
+            <div class="cards-section-label">装配区<span class="cards-equip-hint" data-tooltip="装入槽：100% 加成&#10;槽外卡片：10% 加成">?</span></div>
+            <div class="cards-slots" id="cards-slots"><!-- JS 渲染 --></div>
+          </div>
+          <div class="cards-attrs-zone" id="cards-attrs-zone">
+            <div class="cards-section-label">总属性</div>
+            <!-- JS 渲染 -->
+          </div>
+        </div>
+        <!-- 下：卡片区 + 说明区 -->
+        <div class="cards-bottom-row">
+          <div class="cards-collection-pane">
+            <div class="cards-section-label">卡片</div>
+            <div class="cards-grid" id="cards-grid"><!-- JS 渲染 --></div>
+          </div>
+          <div class="cards-detail-pane" id="cards-detail-pane">
+            <div class="cards-detail-empty" id="cards-detail-empty"></div>
+            <div class="cards-detail-content hidden" id="cards-detail-content">
+              <div class="cards-detail-header">
+                <span class="cards-detail-icon" id="cards-detail-icon">＝</span>
+                <div>
+                  <div class="cards-detail-name" id="cards-detail-name"></div>
+                  <div class="cards-detail-meta">
+                    <span class="cards-detail-type" id="cards-detail-type"></span>
+                    <span class="cards-detail-rarity" id="cards-detail-rarity"></span>
+                  </div>
+                </div>
+              </div>
+              <p class="cards-detail-desc" id="cards-detail-desc"></p>
+              <div class="cards-detail-levels" id="cards-detail-levels"></div>
+              <div class="cards-detail-actions">
+                <button class="cards-action-btn" id="btn-card-equip">装入槽</button>
+                <button class="cards-action-btn" id="btn-card-unequip">取出槽</button>
+                <button class="cards-action-btn cards-merge-btn" id="btn-card-merge">一键合成</button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="panel-tab-content hidden" id="panel-skilltree">
@@ -169,6 +213,8 @@
             </div>
           </div>
         </div>
+
+        <div class="cards-display hidden" id="cards-display"></div>
 
         <!-- 学会练习后：属性 | 战斗记录 | 攻血 | 地图 -->
         <div class="practice-display hidden" id="practice-display">
@@ -303,7 +349,35 @@
       <p class="campaign-success-line">已用操作数：<strong id="campaign-success-ops">0</strong></p>
       <p class="campaign-success-line">满星要求：<strong id="campaign-success-rule">≤ 2 次</strong></p>
       <p class="campaign-success-line">获得星星：<strong id="campaign-success-star-count">⭐ × 0</strong></p>
+      <div class="campaign-success-card-reward hidden" id="campaign-success-card-reward">
+        <div class="card-reward-label">卡片掉落</div>
+        <div class="card-reward-item" id="campaign-success-card-item"></div>
+      </div>
       <button class="modal-btn" id="btn-campaign-success-confirm">返回地图</button>
+    </div>
+  </div>
+
+  <!-- 剧情演出层 -->
+  <div class="story-overlay hidden" id="story-overlay">
+    <div class="story-scene">
+      <img class="story-character" id="story-character" src="pics/search.png" alt="">
+      <div class="story-dialog-box">
+        <span class="story-speaker" id="story-speaker"></span>
+        <p class="story-text" id="story-text"></p>
+        <span class="story-advance-hint">点击继续</span>
+      </div>
+      <button class="story-skip-btn" id="story-skip-btn" type="button">跳过</button>
+    </div>
+    <!-- 跳过确认 -->
+    <div class="story-skip-confirm hidden" id="story-skip-confirm">
+      <div class="story-skip-card">
+        <p class="story-skip-title">跳过剧情？</p>
+        <p class="story-skip-summary" id="story-skip-summary"></p>
+        <div class="story-skip-actions">
+          <button class="story-skip-action-btn" id="story-skip-yes">跳过</button>
+          <button class="story-skip-action-btn story-skip-cancel" id="story-skip-no">继续观看</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -317,6 +391,7 @@
   <script src="js/attributes.js"></script>
   <script src="js/exam.js"></script>
   <script src="js/battle.js"></script>
+  <script src="js/cards.js"></script>
   <script src="js/game.js"></script>
   <script src="js/save.js"></script>
   <script src="js/main.js"></script>

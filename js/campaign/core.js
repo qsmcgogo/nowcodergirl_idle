@@ -27,7 +27,8 @@ const Campaign = {
         cleared: false,
         stars: 0,
         attempts: 0,
-        bestOps: null
+        bestOps: null,
+        introSeen: false
       };
     });
     this.selectedStageId = this.FIRST_STAGE_ID;
@@ -39,7 +40,7 @@ const Campaign = {
 
   getStageState(stageId = this.selectedStageId) {
     if (!this.stageStates[stageId]) {
-      this.stageStates[stageId] = { cleared: false, stars: 0, attempts: 0, bestOps: null };
+      this.stageStates[stageId] = { cleared: false, stars: 0, attempts: 0, bestOps: null, introSeen: false };
     }
     return this.stageStates[stageId];
   },
@@ -110,12 +111,22 @@ const Campaign = {
       Resources.skilltreeEverUnlocked = true;
     }
 
+    // 首次通关 Stage 0-1 掉落第一张卡片
+    let cardReward = null;
+    if (firstClear && stageId === 'world0_ch1_stage1') {
+      if (typeof Cards !== 'undefined') {
+        Cards.addCard('equals_init');
+        cardReward = 'equals_init';
+      }
+    }
+
     return {
       ok: true,
       firstClear,
       unlockedSkilltree: firstChapterCleared,
       gotStar,
       gainedStars,
+      cardReward,
       bestOps: state.bestOps,
       message: firstClear
         ? (gotStar ? '通关成功。' : '通关成功。')
@@ -146,7 +157,8 @@ const Campaign = {
           cleared: !!state.cleared,
           stars: Number(state.stars) || 0,
           attempts: Number(state.attempts) || 0,
-          bestOps: state.bestOps == null ? null : Number(state.bestOps) || 0
+          bestOps: state.bestOps == null ? null : Number(state.bestOps) || 0,
+          introSeen: !!state.introSeen
         };
       });
     }

@@ -18,8 +18,9 @@ const Save = {
       skilltree: SkillTree.getSnapshot(),
       exam: Exam.getSnapshot(),
       battle: Battle.getSnapshot(),
+      cards: Cards.getSnapshot(),
       lastUpdateTime: Game.lastUpdateTime,
-      version: 6
+      version: 7
     };
   },
 
@@ -41,6 +42,8 @@ const Save = {
     if (data.exam) Exam.loadSnapshot(data.exam);
     if (data.battle) Battle.loadSnapshot(data.battle);
     else if (data.version < 4) Battle.loadSnapshot(null);
+    if (data.cards) Cards.loadSnapshot(data.cards);
+    else Cards.loadSnapshot(null);
     if (data.lastUpdateTime) Game.lastUpdateTime = data.lastUpdateTime;
     return true;
   },

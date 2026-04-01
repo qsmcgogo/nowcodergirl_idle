@@ -28,7 +28,20 @@ const CampaignData = {
       starConditionText: '2 次操作内完成可获得本关星星。',
       rewardText: '2 次操作内完成可获得本章第 1 颗星。',
       gameType: 'balance_drag',
-      starOpLimit: 2
+      starOpLimit: 2,
+      story: {
+        lines: [
+          { speaker: '牛客娘', text: '……' },
+          { speaker: '牛客娘', text: '我明明很强的……但现在脑子里什么都想不起来。' },
+          { speaker: '牛客娘', text: '你能帮我吗？' },
+          { speaker: '牛客娘', text: '从最开始。' },
+        ],
+        clearLines: [
+          { speaker: '牛客娘', text: '1 + 1 = 2……对，就是这个。我想起来了。' },
+          { speaker: '牛客娘', text: '……谢谢你。' },
+        ],
+        summary: '牛客娘失去了所有算法记忆，她请求你帮她从最基础的运算开始，重新找回。'
+      }
     },
     world0_ch1_stage2: {
       id: 'world0_ch1_stage2',

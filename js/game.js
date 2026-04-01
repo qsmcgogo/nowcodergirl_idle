@@ -20,6 +20,7 @@ const Game = {
     this.lastUpdateTime = Date.now();
     Exam.init();
     Campaign.init();
+    Cards.init();
     const saved = Save.loadFromCache();
     if (saved) {
       Save.applySaveData(saved);

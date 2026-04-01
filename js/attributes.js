@@ -19,14 +19,18 @@ const Attributes = {
     return this[attr] + bonus;
   },
 
-  /** 攻击力 = 思维 * 知识点 * 手速 */
+  /** 攻击力 = 思维 * 知识点 * 手速，再乘以卡片加成 */
   getAttack() {
-    return this.getEffective('siwei') * this.getEffective('zhishi') * this.getEffective('shousu');
+    const base = this.getEffective('siwei') * this.getEffective('zhishi') * this.getEffective('shousu');
+    const cardBonus = typeof Cards !== 'undefined' ? Cards.getBonuses().atkPercent : 0;
+    return base * (1 + cardBonus / 100);
   },
 
-  /** 血量 = 码力 * 耐力 */
+  /** 血量 = 码力 * 耐力，再乘以卡片加成 */
   getHp() {
-    return this.getEffective('mali') * this.getEffective('naili');
+    const base = this.getEffective('mali') * this.getEffective('naili');
+    const cardBonus = typeof Cards !== 'undefined' ? Cards.getBonuses().hpPercent : 0;
+    return Math.floor(base * (1 + cardBonus / 100));
   },
 
   getSnapshot() {

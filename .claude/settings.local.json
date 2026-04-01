@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/nowcoder/.claude/skills/**)",
+      "Edit(~/.claude/skills/同步文档/**)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\nowcoder\\.claude\\skills",
+      "C:\\Users\\nowcoder\\.claude\\projects\\c--code-nowcodergirl-idle"
+    ]
+  }
+}
