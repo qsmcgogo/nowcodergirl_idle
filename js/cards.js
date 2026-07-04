@@ -23,6 +23,23 @@ const RARITY_LABELS = {
   legendary: '传说'
 };
 
+const CARD_BONUS_FIELDS = {
+  atkPercent: { label: '攻击', suffix: '%', precision: 1 },
+  hpPercent: { label: '血量', suffix: '%', precision: 1 },
+  atkFlat: { label: '攻击', suffix: '', precision: 1 },
+  hpFlat: { label: '血量', suffix: '', precision: 1 },
+  baseAtkFlat: { label: '基础攻击', suffix: '', precision: 1 },
+  baseHpFlat: { label: '基础血量', suffix: '', precision: 1 },
+  thinkingRatePercent: { label: '思维力挂机速度', suffix: '%', precision: 1 },
+  thinkingRateFlat: { label: '思维力挂机速度', suffix: '/s', precision: 2 },
+  focusRatePercent: { label: '专注力挂机速度', suffix: '%', precision: 1 },
+  focusRateFlat: { label: '专注力挂机速度', suffix: '/s', precision: 2 },
+  hpRegenPercent: { label: '回血速度', suffix: '%', precision: 1 },
+  hpRegenFlat: { label: '回血速度', suffix: '/s', precision: 2 },
+  timeSandPracticePercent: { label: '练习时间之砂', suffix: '%', precision: 1 },
+  timeSandPracticeFlat: { label: '练习时间之砂', suffix: '', precision: 1 }
+};
+
 const Cards = {
   SLOT_COUNT: 1,
 
@@ -146,12 +163,35 @@ const Cards = {
     return result;
   },
 
+  getEmptyBonuses() {
+    const result = {};
+    Object.keys(CARD_BONUS_FIELDS).forEach((key) => { result[key] = 0; });
+    return result;
+  },
+
+  formatBonusLines(bonus) {
+    const lines = [];
+    Object.entries(CARD_BONUS_FIELDS).forEach(([key, meta]) => {
+      const value = Number(bonus?.[key] || 0);
+      if (!value) return;
+      const textValue = +value.toFixed(meta.precision ?? 1);
+      lines.push(`${meta.label} +${textValue}${meta.suffix}`);
+    });
+    Object.keys(bonus || {}).forEach((key) => {
+      if (CARD_BONUS_FIELDS[key]) return;
+      const value = Number(bonus[key] || 0);
+      if (!value) return;
+      lines.push(`${key} +${+value.toFixed(2)}`);
+    });
+    return lines;
+  },
+
   /**
    * 计算所有卡片的加成总量
    * 槽内 100%，槽外 10%
    */
   getBonuses() {
-    const result = { atkPercent: 0, hpPercent: 0 };
+    const result = this.getEmptyBonuses();
     this.owned.forEach(({ defId }) => {
       const def = CardDefs[defId];
       if (!def) return;
@@ -159,8 +199,11 @@ const Cards = {
       if (level === 0) return;
       const bonus = this.getLevelBonus(defId, level);
       const multi = this.isSlotted(defId) ? 1.0 : 0.1;
-      result.atkPercent += (bonus.atkPercent || 0) * multi;
-      result.hpPercent  += (bonus.hpPercent  || 0) * multi;
+      Object.keys(bonus).forEach((key) => {
+        const value = Number(bonus[key] || 0);
+        if (!value) return;
+        result[key] = (result[key] || 0) + value * multi;
+      });
     });
     return result;
   },

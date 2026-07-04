@@ -33,8 +33,18 @@
   let campaignBoardSignature = '';
   let campaignStageSession = createCampaignStageSession();
   let _pointerDrag = null;
+  let selectedCampaignSubject = 'math';
+  let selectedPracticeRank = '1';
+  let selectedAchievementCategory = 'map';
+  let exchangeFastForwardMinutes = 10;
+  let exchangeTicketCount = 1;
+  let lastFastForwardReport = null;
   let selectedCardDefId = null;
   let cardsGridSignature = '';
+  let buildingsGridSignature = '';
+  let achievementToastId = 0;
+  let mathSession = null;
+  const MATH_EXAM_QUESTION_BATCH_SIZE = 32;
 
   function markCampaignMapDirty() {
     campaignMapDirty = true;
@@ -58,21 +68,44 @@
     campaignBoardSignature = '';
   }
 
+  const RANKS = ['F', 'E', 'D', 'C', 'B', 'A', 'S', 'SS', 'SSS'];
+
+  function getRankIndex(rank) {
+    return Math.max(0, RANKS.indexOf(rank));
+  }
+
+  function getSelectedPracticeStage() {
+    const current = Math.max(1, Math.min(MathCampaign.MAX_STAGE, Resources.mathStage || 1));
+    const stage = Math.max(1, Math.min(current, Math.floor(Number(selectedPracticeRank) || current)));
+    return stage;
+  }
+
   function updateResourceDisplay() {
     const fmt = n => (n < 1000 ? n.toFixed(1) : Utils.formatNumber(n));
     THINKING_EL.textContent = fmt(Resources.thinkingPower);
     FOCUS_EL.textContent = fmt(Resources.focusPower);
     if (INSPIRATION_EL) INSPIRATION_EL.textContent = fmt(Resources.inspiration);
+    const draftPaperEl = document.getElementById('draft-paper-count');
+    const mistakeNotesEl = document.getElementById('mistake-notes-count');
+    const reviewTicketsEl = document.getElementById('review-ticket-count');
+    const memoryShardsEl = document.getElementById('memory-shards-count');
+    if (draftPaperEl) draftPaperEl.textContent = fmt(Buildings.draftPaper);
+    if (mistakeNotesEl) mistakeNotesEl.textContent = fmt(Buildings.mistakeNotes);
+    if (reviewTicketsEl) reviewTicketsEl.textContent = fmt(Buildings.reviewTickets);
+    if (memoryShardsEl) memoryShardsEl.textContent = fmt(Buildings.memoryShards || 0);
 
     const act = Resources.currentActivity;
-    const thinkingRate = act === 'thinking' ? 1 : 0;
-    const focusRate = act === 'focus' ? 1 : 0;
+    const buildingBonuses = Buildings.getBonuses();
+    const thinkingRate = (act === 'thinking' ? Resources.getActivityRate('thinking') : 0) +
+      (buildingBonuses.autoThinkingRate || 0);
+    const focusRate = (act === 'focus' ? Resources.getActivityRate('focus') : 0) +
+      (buildingBonuses.autoFocusRate || 0);
     if (THINKING_RATE_EL) {
-      THINKING_RATE_EL.textContent = thinkingRate + '/s';
+      THINKING_RATE_EL.textContent = +thinkingRate.toFixed(2) + '/s';
       THINKING_RATE_EL.classList.toggle('rate-active', thinkingRate > 0);
     }
     if (FOCUS_RATE_EL) {
-      FOCUS_RATE_EL.textContent = focusRate + '/s';
+      FOCUS_RATE_EL.textContent = +focusRate.toFixed(2) + '/s';
       FOCUS_RATE_EL.classList.toggle('rate-active', focusRate > 0);
     }
 
@@ -90,10 +123,21 @@
     });
     if (focusUnlocked) BTN_FOCUS.disabled = false;
 
-    const systemsUnlocked = Resources.inspirationEverDropped || Resources.skilltreeEverUnlocked;
+    [
+      { el: document.getElementById('draft-paper-resource'), show: Buildings.draftPaper > 0 || Buildings.isUnlocked() },
+      { el: document.getElementById('mistake-notes-resource'), show: Buildings.mistakeNotes > 0 || Battle.hasDefeatedOnce },
+      { el: document.getElementById('review-tickets-resource'), show: Buildings.reviewTickets > 0 || Buildings.grindModeUnlocked },
+      { el: document.getElementById('memory-shards-resource'), show: (Buildings.memoryShards || 0) > 0 }
+    ].forEach(({ el, show }) => {
+      if (!el) return;
+      el.classList.toggle('locked', !show);
+      el.classList.toggle('revealed', show);
+    });
+
+    const systemsUnlocked = Resources.isSkilltreeUnlocked();
     const skilltreeTabUnlocked = Resources.isSkilltreeUnlocked();
     const skilltreeLayerUnlocked = Resources.isSkilltreeLayerUnlocked();
-    [document.getElementById('inspiration-resource'), document.getElementById('tab-campaign'), document.getElementById('tab-skilltree'), document.getElementById('attr-inspiration-rate')].forEach((el) => {
+    [document.getElementById('inspiration-resource'), document.getElementById('tab-skilltree'), document.getElementById('attr-inspiration-rate')].forEach((el) => {
       if (!el) return;
       if (systemsUnlocked) {
         el.classList.remove('locked');
@@ -110,7 +154,15 @@
     }
     const tabCampaign = document.getElementById('tab-campaign');
     if (tabCampaign) {
-      tabCampaign.disabled = !Resources.isCampaignUnlocked();
+      const campaignUnlocked = Resources.isCampaignUnlocked();
+      tabCampaign.disabled = !campaignUnlocked;
+      if (campaignUnlocked) {
+        tabCampaign.classList.remove('locked');
+        tabCampaign.classList.add('revealed');
+      } else {
+        tabCampaign.classList.add('locked');
+        tabCampaign.classList.remove('revealed');
+      }
     }
     const tabCards = document.getElementById('tab-cards');
     if (tabCards) {
@@ -155,7 +207,8 @@
     const hasResearchToShow = !learned ||
       (typeof Battle !== 'undefined' && (
         (Battle.runningUnlocked && !Battle.runningLearned) ||
-        (Battle.autoPracticeUnlocked && !Battle.autoPracticeLearned)
+        (Battle.autoPracticeUnlocked && !Battle.autoPracticeLearned) ||
+        (Buildings.grindModeUnlocked && !Buildings.grindModeLearned)
       ));
     if (btnWrap) btnWrap.classList.toggle('hidden', !hasResearchToShow);
 
@@ -235,7 +288,8 @@
     });
     const rateEl = document.getElementById('attr-inspiration-rate-val');
     if (rateEl && typeof Battle !== 'undefined') {
-      rateEl.textContent = Math.round(Battle.INSPIRATION_DROP_RATE * 100) + '%';
+      const buildingBonuses = typeof Buildings !== 'undefined' ? Buildings.getBonuses() : {};
+      rateEl.textContent = Math.round((Battle.INSPIRATION_DROP_RATE + (buildingBonuses.inspirationDropRateBonus || 0)) * 100) + '%';
     }
   }
 
@@ -243,13 +297,30 @@
     if (!Resources.practiceLearned) return;
     const btnChallenge = document.getElementById('btn-challenge');
     const cur = Exam.getCurrentQuestion();
+    const grindTarget = Battle.getGrindTarget();
     const maxHp = Attributes.getHp();
     const hpZero = Battle.currentHp <= 0;
-    const canChallenge = !hpZero && !Battle.isInBattle && !Battle.isRecovering && cur != null;
+    const isGrindMode = Buildings.grindModeLearned && Buildings.mode === 'grind';
+    const canChallenge = !hpZero && !Battle.isInBattle && !Battle.isRecovering &&
+      (isGrindMode ? Battle.canStartGrind() : cur != null);
 
     if (btnChallenge) {
       btnChallenge.disabled = !canChallenge;
       btnChallenge.classList.toggle('challenge-disabled', hpZero);
+      btnChallenge.textContent = isGrindMode ? '刷题' : '练习';
+    }
+
+    const battleModeToggle = document.getElementById('battle-mode-toggle');
+    const btnModePush = document.getElementById('btn-mode-push');
+    const btnModeGrind = document.getElementById('btn-mode-grind');
+    if (battleModeToggle) {
+      battleModeToggle.classList.toggle('locked', !Buildings.grindModeLearned);
+      battleModeToggle.classList.toggle('revealed', Buildings.grindModeLearned);
+    }
+    if (btnModePush) btnModePush.classList.toggle('active', !isGrindMode);
+    if (btnModeGrind) {
+      btnModeGrind.classList.toggle('active', isGrindMode);
+      btnModeGrind.disabled = !Buildings.grindModeLearned || grindTarget == null;
     }
 
     const btnAutoChallenge = document.getElementById('btn-auto-challenge');
@@ -284,11 +355,14 @@
       if (atkEnemy) atkEnemy.textContent = Utils.formatCombatNum(Exam.getQuestionAttack(e, q));
       if (hpFillEnemy) hpFillEnemy.style.width = Math.max(0, (Battle.battleEnemyHp / Battle.battleEnemyMaxHp) * 100) + '%';
       if (hpTextEnemy) hpTextEnemy.textContent = Utils.formatCombatNum(Math.max(0, Battle.battleEnemyHp)) + '/' + Utils.formatCombatNum(Battle.battleEnemyMaxHp);
-    } else if (cur != null) {
-      const qAtk = Exam.getQuestionAttack(cur.examIndex, cur.questionIndex);
-      const qHp = Exam.getQuestionCurrentHp(cur.examIndex, cur.questionIndex);
-      const qMax = Exam.getQuestionHp(cur.examIndex, cur.questionIndex);
-      if (questionLabel) questionLabel.textContent = Exam.getQuestionLabel(cur.questionIndex);
+    } else if ((isGrindMode && grindTarget) || cur != null) {
+      const shown = isGrindMode && grindTarget ? grindTarget : cur;
+      const qAtk = Exam.getQuestionAttack(shown.examIndex, shown.questionIndex) * (isGrindMode ? 0.6 : 1);
+      const qHp = isGrindMode
+        ? Exam.getQuestionHp(shown.examIndex, shown.questionIndex) * 0.6
+        : Exam.getQuestionCurrentHp(shown.examIndex, shown.questionIndex);
+      const qMax = Exam.getQuestionHp(shown.examIndex, shown.questionIndex) * (isGrindMode ? 0.6 : 1);
+      if (questionLabel) questionLabel.textContent = (isGrindMode ? '复习 ' : '') + Exam.getQuestionLabel(shown.questionIndex);
       if (atkEnemy) atkEnemy.textContent = Utils.formatCombatNum(qAtk);
       if (hpFillEnemy) hpFillEnemy.style.width = Math.max(0, (qHp / qMax) * 100) + '%';
       if (hpTextEnemy) hpTextEnemy.textContent = Utils.formatCombatNum(Math.max(0, qHp)) + '/' + Utils.formatCombatNum(qMax);
@@ -401,105 +475,125 @@
 
   function updateCampaignDisplay() {
     const summary = document.getElementById('campaign-summary-text');
-    const mapView = document.getElementById('campaign-map-view');
-    const stageView = document.getElementById('campaign-stage-view');
-    const mapDesc = document.getElementById('campaign-map-description');
-    const mapMeta = document.getElementById('campaign-map-meta');
-    const nodeGrid = document.getElementById('campaign-node-grid');
-    const totalStarsEl = document.getElementById('campaign-total-stars');
-    const totalStarsValueEl = document.getElementById('campaign-total-stars-value');
-    const title = document.getElementById('campaign-title');
-    const kicker = document.getElementById('campaign-kicker');
-    const description = document.getElementById('campaign-description');
-    const feedback = document.getElementById('campaign-feedback');
-    const reward = document.getElementById('campaign-reward');
-    const stageStats = document.querySelector('.campaign-stage-stats');
-    const opCountEl = document.getElementById('campaign-op-count');
-    const bestOpEl = document.getElementById('campaign-best-op');
-    const starRuleEl = document.getElementById('campaign-star-rule');
-    const balanceBoard = document.getElementById('campaign-balance-board');
-    const leftZone = document.getElementById('campaign-left-zone');
-    const rightZone = document.getElementById('campaign-right-zone');
-    const stockZone = document.getElementById('campaign-stock-zone');
-
-    const def = Campaign.getStageDef();
-    const state = Campaign.getStageState();
-    const totalStars = Campaign.getTotalStars();
-    const totalAtkBonus = totalStars;
-    const totalHpBonus = totalStars;
-
-    if (summary) {
-      summary.textContent = Resources.isCampaignUnlocked()
-        ? '右侧显示关卡地图。点击小方块进入关卡。'
-        : '首次获得灵感后解锁关卡系统。';
-    }
-    if (totalStarsValueEl) totalStarsValueEl.textContent = totalStars;
-    if (totalStarsEl) {
-      totalStarsEl.setAttribute('data-tooltip', `攻击 +${totalAtkBonus}%\n血量 +${totalHpBonus}%`);
-    }
-    if (mapDesc) {
-      mapDesc.textContent = '点击小方块进入关卡。';
-    }
-    if (mapMeta) mapMeta.textContent = '';
+    const subjectGrid = document.getElementById('campaign-subject-grid');
+    const currentRankEl = document.getElementById('campaign-current-rank');
+    const mainMapEl = document.getElementById('campaign-main-map');
+    const ticketEl = document.getElementById('campaign-ticket-count');
+    const timeSandEl = document.getElementById('campaign-time-sand');
+    const subjectKicker = document.getElementById('campaign-subject-kicker');
+    const subjectTitle = document.getElementById('campaign-subject-title');
+    const subjectDesc = document.getElementById('campaign-subject-desc');
+    const practiceRankSelect = document.getElementById('campaign-practice-rank');
+    const btnPractice = document.getElementById('btn-start-math-practice');
+    const btnExam = document.getElementById('btn-start-math-exam');
 
     const isCampaignPanel = activePanel === 'campaign';
     if (CAMPAIGN_DISPLAY) CAMPAIGN_DISPLAY.classList.toggle('hidden', !isCampaignPanel);
+    if (summary) {
+      summary.textContent = Resources.isCampaignUnlocked()
+        ? '数学训练已开放。语文训练将在主线第 10 图解锁。'
+        : '到达主线第 2 图后解锁关卡系统。';
+    }
     if (!isCampaignPanel) return;
 
     PLACEHOLDER.classList.add('hidden');
     ACTIVITY_DISPLAY.classList.add('hidden');
     PRACTICE_DISPLAY.classList.add('hidden');
-    if (mapView) mapView.classList.toggle('hidden', campaignStageViewOpen);
-    if (stageView) stageView.classList.toggle('hidden', !campaignStageViewOpen);
-    if (!campaignStageViewOpen && campaignMapDirty) {
-      renderCampaignNodeGrid(nodeGrid);
-    }
-    if (!campaignStageViewOpen || !def) return;
 
-    if (kicker) kicker.textContent = def.chapterName;
-    if (title) title.textContent = (def.label ? def.label + ' · ' : '') + def.stageName;
-    if (description) description.textContent = def.goalText || def.description;
-    if (reward) {
-      reward.textContent = '';
-      reward.classList.add('hidden');
-    }
-    if (opCountEl) opCountEl.textContent = campaignStageSession.operations;
-    if (bestOpEl) bestOpEl.textContent = state.bestOps == null ? '-' : state.bestOps;
-    if (starRuleEl) starRuleEl.textContent = '<= ' + (def.starOpLimit ?? '-') + ' 次';
-    if (feedback) {
-      feedback.classList.remove('success', 'error');
-      if (campaignStageFeedbackType) feedback.classList.add(campaignStageFeedbackType);
-      feedback.textContent = campaignStageFeedback;
-    }
-
-    const isBalanceStage = def.gameType === 'balance_drag';
-    if (stageStats) stageStats.classList.toggle('hidden', !isBalanceStage);
-    if (balanceBoard) balanceBoard.classList.toggle('hidden', !isBalanceStage);
-    if (leftZone?.parentElement) leftZone.parentElement.classList.toggle('hidden', !isBalanceStage);
-    if (rightZone?.parentElement) rightZone.parentElement.classList.toggle('hidden', !isBalanceStage);
-    if (stockZone?.parentElement?.parentElement) stockZone.parentElement.parentElement.classList.toggle('hidden', !isBalanceStage);
-    if (!isBalanceStage) {
-      if (feedback) {
-        feedback.classList.remove('success', 'error');
-        feedback.textContent = '该关卡内容正在制作中。';
+    const mainMap = typeof Exam !== 'undefined' ? Exam.unlockedExamIndex + 1 : 1;
+    const subjects = [
+      {
+        id: 'math',
+        name: '数学',
+        rank: MathCampaign.getStageLabel(Resources.mathStage || 1),
+        unlockMap: 2,
+        status: '已解锁',
+        desc: '简单四则运算、速算与基础数字直觉。',
+        detail: MathCampaign.getStageTitle(Resources.mathStage || 1) + '。练习会混入之前关卡的题目。'
+      },
+      {
+        id: 'chinese',
+        name: '语文',
+        rank: 'F',
+        unlockMap: 10,
+        status: '主线第 10 图解锁',
+        desc: '打字、读题与表达训练。',
+        detail: '语文训练尚未开放。后续会从打字和读题理解开始。'
       }
-      return;
+    ];
+    const selected = subjects.find(s => s.id === selectedCampaignSubject) || subjects[0];
+    const selectedUnlocked = mainMap >= selected.unlockMap;
+
+    if (currentRankEl) currentRankEl.textContent = selectedUnlocked ? selected.rank : '-';
+    if (mainMapEl) mainMapEl.textContent = '第 ' + mainMap + ' 图';
+    if (ticketEl) ticketEl.textContent = Utils.formatNumber(Resources.answerTickets);
+    if (timeSandEl) timeSandEl.textContent = Utils.formatNumber(Resources.timeSand);
+    if (subjectKicker) subjectKicker.textContent = selected.name;
+    if (subjectTitle) subjectTitle.textContent = selected.name + (selectedUnlocked ? '训练 · ' + selected.rank : '训练 · 未解锁');
+    if (subjectDesc) subjectDesc.textContent = selectedUnlocked ? selected.detail : selected.status;
+    if (btnPractice) btnPractice.disabled = !selectedUnlocked || selected.id !== 'math' || !!(mathSession && !mathSession.ended);
+    if (btnExam) {
+      btnExam.disabled = !selectedUnlocked || selected.id !== 'math' || !!(mathSession && !mathSession.ended);
+      const examHint = btnExam.querySelector('em');
+      if (examHint) {
+        examHint.textContent = (Resources.mathStage || 1) >= MathCampaign.MAX_STAGE
+          ? '后续关卡等待开放'
+          : '消耗答题券，答错扣 5 秒并换题';
+      }
     }
 
-    const totalRightCount = 2 + campaignStageSession.rightBallCount;
-    updateCampaignBalanceAnimation(balanceBoard, campaignStageSession.leftBallCount, totalRightCount);
-    const boardSignature = JSON.stringify({
-      stageId: def.id,
-      leftBallCount: campaignStageSession.leftBallCount,
-      rightBallCount: campaignStageSession.rightBallCount,
-      completed: campaignStageSession.completed
-    });
-    if (campaignBoardSignature !== boardSignature) {
-      campaignBoardSignature = boardSignature;
-      renderCampaignLeftZone(leftZone, campaignStageSession.leftBallCount);
-      renderCampaignRightZone(rightZone, campaignStageSession.rightBallCount);
-      renderCampaignStockZone(stockZone);
+    const btnLearnGrind = document.getElementById('btn-learn-grind');
+    if (btnLearnGrind) {
+      const showGrind = Buildings.grindModeUnlocked && !Buildings.grindModeLearned;
+      btnLearnGrind.classList.toggle('research-done-hidden', Buildings.grindModeLearned);
+      if (showGrind) {
+        btnLearnGrind.classList.remove('locked');
+        btnLearnGrind.classList.add('revealed');
+        const canGrind = Resources.thinkingPower >= 20 && Resources.focusPower >= 20 && Buildings.reviewTickets >= 2;
+        btnLearnGrind.classList.toggle('reqs-not-met', !canGrind);
+      } else if (!Buildings.grindModeLearned) {
+        btnLearnGrind.classList.add('locked');
+        btnLearnGrind.classList.remove('revealed');
+      }
     }
+    if (practiceRankSelect) {
+      const maxStage = selected.id === 'math' && selectedUnlocked ? Resources.mathStage || 1 : 1;
+      const availableStages = Array.from({ length: maxStage }, (_, i) => i + 1);
+      if (!availableStages.includes(Math.floor(Number(selectedPracticeRank)))) selectedPracticeRank = String(maxStage);
+      practiceRankSelect.innerHTML = '';
+      availableStages.forEach((stage) => {
+        const option = document.createElement('option');
+        option.value = String(stage);
+        option.textContent = MathCampaign.getStageLabel(stage) + ' · ' + MathCampaign.getStageTitle(stage);
+        option.selected = String(stage) === String(selectedPracticeRank);
+        practiceRankSelect.appendChild(option);
+      });
+      practiceRankSelect.disabled = !selectedUnlocked;
+    }
+
+    if (!subjectGrid) return;
+    subjectGrid.innerHTML = '';
+    subjects.forEach((subject) => {
+      const unlocked = mainMap >= subject.unlockMap;
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'campaign-subject-card' +
+        (unlocked ? ' unlocked' : ' locked') +
+        (subject.id === selectedCampaignSubject ? ' selected' : '');
+      item.disabled = false;
+      item.innerHTML = `
+        <span class="campaign-subject-lock">${unlocked ? 'OPEN' : 'LOCK'}</span>
+        <strong>${subject.name}</strong>
+        <em>${unlocked ? subject.rank : subject.status}</em>
+        <p>${subject.desc}</p>
+      `;
+      item.addEventListener('click', () => {
+        selectedCampaignSubject = subject.id;
+        selectedPracticeRank = subject.id === 'math' ? String(Resources.mathStage || 1) : '1';
+        refreshUI();
+      });
+      subjectGrid.appendChild(item);
+    });
   }
 
   function renderCampaignNodeGrid(container) {
@@ -847,6 +941,144 @@
     el.textContent = text;
   }
 
+  function clampExchangeState() {
+    const maxMinutes = Math.floor(Resources.timeSand / Resources.TIME_SAND_PER_FAST_FORWARD_MINUTE);
+    const maxTickets = Math.floor(Resources.timeSand / Resources.TIME_SAND_PER_TICKET);
+    exchangeFastForwardMinutes = Math.max(1, Math.floor(exchangeFastForwardMinutes || 1));
+    exchangeTicketCount = Math.max(1, Math.floor(exchangeTicketCount || 1));
+    if (maxMinutes > 0) exchangeFastForwardMinutes = Math.min(exchangeFastForwardMinutes, maxMinutes);
+    if (maxTickets > 0) exchangeTicketCount = Math.min(exchangeTicketCount, maxTickets);
+  }
+
+  function updateTimeSandModal() {
+    clampExchangeState();
+    const balanceEl = document.getElementById('exchange-time-sand-balance');
+    const minutesEl = document.getElementById('exchange-ff-minutes');
+    const ffCostEl = document.getElementById('exchange-ff-cost');
+    const ticketCountEl = document.getElementById('exchange-ticket-count');
+    const ticketCostEl = document.getElementById('exchange-ticket-cost');
+    const btnFastForward = document.getElementById('btn-exchange-fast-forward');
+    const btnTicket = document.getElementById('btn-exchange-ticket');
+    const maxMinutes = Math.floor(Resources.timeSand / Resources.TIME_SAND_PER_FAST_FORWARD_MINUTE);
+    const maxTickets = Math.floor(Resources.timeSand / Resources.TIME_SAND_PER_TICKET);
+    const ffCost = Resources.getFastForwardCost(exchangeFastForwardMinutes);
+    const ticketCost = Resources.getTicketExchangeCost(exchangeTicketCount);
+
+    if (balanceEl) balanceEl.textContent = Utils.formatNumber(Resources.timeSand);
+    if (minutesEl) minutesEl.textContent = exchangeFastForwardMinutes;
+    if (ffCostEl) ffCostEl.textContent = Utils.formatNumber(ffCost);
+    if (ticketCountEl) ticketCountEl.textContent = exchangeTicketCount;
+    if (ticketCostEl) ticketCostEl.textContent = Utils.formatNumber(ticketCost);
+    if (btnFastForward) btnFastForward.disabled = maxMinutes <= 0 || ffCost > Resources.timeSand;
+    if (btnTicket) btnTicket.disabled = maxTickets <= 0 || ticketCost > Resources.timeSand;
+  }
+
+  function openTimeSandModal() {
+    const modal = document.getElementById('modal-time-sand');
+    const status = document.getElementById('exchange-status');
+    if (Resources.timeSand >= Resources.TIME_SAND_PER_FAST_FORWARD_MINUTE) {
+      exchangeFastForwardMinutes = Math.min(10, Math.floor(Resources.timeSand / Resources.TIME_SAND_PER_FAST_FORWARD_MINUTE));
+    } else {
+      exchangeFastForwardMinutes = 10;
+    }
+    exchangeTicketCount = 1;
+    setModalStatus(status, '');
+    updateTimeSandModal();
+    modal?.classList.remove('hidden');
+  }
+
+  function renderFastForwardReport(report) {
+    lastFastForwardReport = report;
+    const modal = document.getElementById('modal-fast-forward-report');
+    const summary = document.getElementById('fast-forward-report-summary');
+    const list = document.getElementById('fast-forward-report-list');
+    if (!modal || !list) return;
+    const resourceLabels = {
+      thinkingPower: '思维力',
+      focusPower: '专注力',
+      inspiration: '灵感',
+      timeSand: '时间之砂',
+      answerTickets: '答题券'
+    };
+    if (summary) summary.textContent = '已快进 ' + report.durationMinutes + ' 分钟。';
+    list.innerHTML = '';
+
+    const sections = [
+      {
+        title: '资源',
+        rows: Object.entries(report.resources || {})
+          .filter(([, data]) => Math.abs(data.gained || 0) > 0.0001)
+          .map(([key, data]) => ({
+            label: resourceLabels[key] || key,
+            value: (data.gained >= 0 ? '+' : '') + Utils.formatNumber(data.gained)
+          }))
+      },
+      {
+        title: '主线对战',
+        rows: [
+          { label: '完成题目', value: '+' + (report.mainBattle?.questionsCleared || 0) },
+          { label: '解锁试卷', value: '+' + (report.mainBattle?.examsUnlocked || 0) },
+          { label: '获得灵感', value: '+' + Utils.formatNumber(report.mainBattle?.inspirationGained || 0) },
+          { label: '战败次数', value: String(report.mainBattle?.defeats || 0) }
+        ].filter(row => row.value !== '+0' && row.value !== '0')
+      }
+    ];
+
+    sections.forEach((section) => {
+      if (!section.rows.length) return;
+      const block = document.createElement('section');
+      block.className = 'fast-forward-report-section';
+      const rows = section.rows.map((row) =>
+        `<div class="fast-forward-report-row"><span>${row.label}</span><strong>${row.value}</strong></div>`
+      ).join('');
+      block.innerHTML = `<h4>${section.title}</h4>${rows}`;
+      list.appendChild(block);
+    });
+
+    if (!list.children.length) {
+      const block = document.createElement('section');
+      block.className = 'fast-forward-report-section';
+      block.innerHTML = '<h4>暂无收益</h4><div class="fast-forward-report-row"><span>当前没有可快进结算的系统。</span><strong>-</strong></div>';
+      list.appendChild(block);
+    }
+    modal.classList.remove('hidden');
+  }
+
+  function redeemFastForward() {
+    const status = document.getElementById('exchange-status');
+    const cost = Resources.getFastForwardCost(exchangeFastForwardMinutes);
+    if (!Resources.spendTimeSand(cost)) {
+      setModalStatus(status, '时间之砂不足。');
+      updateTimeSandModal();
+      return;
+    }
+    const modal = document.getElementById('modal-time-sand');
+    const clock = document.getElementById('fast-forward-clock');
+    modal?.classList.add('hidden');
+    clock?.classList.remove('hidden');
+    setTimeout(() => {
+      const report = Game.fastForward(exchangeFastForwardMinutes);
+      Achievements.recordFastForward();
+      Save.saveToCache();
+      clock?.classList.add('hidden');
+      switchPanel('daily');
+      renderFastForwardReport(report);
+      refreshUI();
+    }, 900);
+  }
+
+  function redeemTickets() {
+    const status = document.getElementById('exchange-status');
+    if (!Resources.exchangeAnswerTickets(exchangeTicketCount)) {
+      setModalStatus(status, '时间之砂不足。');
+      updateTimeSandModal();
+      return;
+    }
+    setModalStatus(status, '已兑换 ' + exchangeTicketCount + ' 张答题券。');
+    updateTimeSandModal();
+    refreshUI();
+  }
+
   function buildSaveFileName() {
     const now = new Date();
     const pad = (n) => String(n).padStart(2, '0');
@@ -885,6 +1117,8 @@
       closeCampaignSuccessModal(false);
       resetCampaignStageSession();
       markCampaignMapDirty();
+      selectedAchievementCategory = 'map';
+      selectedPracticeRank = 'F';
       switchPanel('daily');
       if (modalImport) modalImport.classList.add('hidden');
       setModalStatus(importStatusEl, '加载成功');
@@ -902,6 +1136,13 @@
     const ml = document.getElementById('skill-math-lv');
     if (gl) gl.textContent = SkillTree.grammarLevel;
     if (ml) ml.textContent = SkillTree.mathLevel;
+    const layer2Unlocked = SkillTree.isLayer2Unlocked();
+    const layer2Lock = document.getElementById('skilltree-layer2-lock');
+    const layer2 = document.getElementById('skilltree-layer2');
+    const layer3Lock = document.getElementById('skilltree-layer3-lock');
+    if (layer2Lock) layer2Lock.classList.toggle('hidden', layer2Unlocked);
+    if (layer2) layer2.classList.toggle('hidden', !layer2Unlocked);
+    if (layer3Lock) layer3Lock.classList.toggle('hidden', !layer2Unlocked);
     const btnG = document.getElementById('btn-upgrade-grammar');
     const btnM = document.getElementById('btn-upgrade-math');
     if (btnG) {
@@ -914,6 +1155,16 @@
       btnM.disabled = !canUpgrade;
       btnM.classList.toggle('reqs-not-met', !canUpgrade);
     }
+    document.querySelectorAll('[data-skill-node]').forEach((btn) => {
+      const id = btn.dataset.skillNode;
+      const levelEl = btn.querySelector('em');
+      if (levelEl) levelEl.textContent = SkillTree.getNodeLevel(id);
+      const unlocked = SkillTree.isNodeUnlocked(id);
+      const canUpgrade = SkillTree.canUpgradeNode(id);
+      btn.disabled = false;
+      btn.classList.toggle('reqs-not-met', !canUpgrade);
+      btn.classList.toggle('skill-node-locked', !unlocked);
+    });
   }
 
   function updateCardsPanel() {
@@ -944,10 +1195,12 @@
     const attrsEl = document.getElementById('cards-attrs-zone');
     if (attrsEl) {
       const b = Cards.getBonuses();
+      const bonusLines = Cards.formatBonusLines(b);
       attrsEl.innerHTML = `
         <div class="cards-section-label">卡片加成</div>
-        <div class="cards-attr-row"><span>攻击</span><span class="cards-attr-val">+${b.atkPercent.toFixed(1)}%</span></div>
-        <div class="cards-attr-row"><span>血量</span><span class="cards-attr-val">+${b.hpPercent.toFixed(1)}%</span></div>`;
+        ${bonusLines.length
+          ? bonusLines.map(line => `<div class="cards-attr-row"><span>${line}</span></div>`).join('')
+          : '<div class="cards-attr-row"><span>暂无加成</span></div>'}`;
     }
   }
 
@@ -993,9 +1246,7 @@
         const bonus = Cards.getLevelBonus(defId, lv);
         const row = document.createElement('div');
         row.className = 'cards-level-row' + (lv === level ? ' active-level' : '');
-        const effectParts = [];
-        if (bonus.atkPercent) effectParts.push(`攻击 +${+bonus.atkPercent.toFixed(1)}%`);
-        if (bonus.hpPercent)  effectParts.push(`血量 +${+bonus.hpPercent.toFixed(1)}%`);
+        const effectParts = Cards.formatBonusLines(bonus);
         row.innerHTML = `
           <span class="cards-level-badge">Lv.${lv}</span>
           <span class="cards-level-effect">${effectParts.join(' · ') || '—'}</span>
@@ -1055,7 +1306,326 @@
     updateCardsPanel();
   }
 
+  function updateAchievementsDisplay() {
+    const modal = document.getElementById('modal-achievements');
+    const isAchievementsOpen = modal && !modal.classList.contains('hidden');
+    const pointsEl = document.getElementById('achievement-total-points');
+    const categoryTabs = document.getElementById('achievement-category-tabs');
+    const list = document.getElementById('achievement-list');
+    if (pointsEl) pointsEl.textContent = Achievements.getTotalPoints();
+    if (!isAchievementsOpen || !categoryTabs || !list) return;
+
+    categoryTabs.innerHTML = '';
+    const visibleCategoryKeys = Achievements.getVisibleCategoryKeys();
+    if (!visibleCategoryKeys.includes(selectedAchievementCategory)) {
+      selectedAchievementCategory = visibleCategoryKeys[0] || 'map';
+    }
+    visibleCategoryKeys.forEach((key) => {
+      const label = AchievementCategories[key];
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'achievement-category-tab' + (key === selectedAchievementCategory ? ' active' : '');
+      button.textContent = label;
+      button.addEventListener('click', () => {
+        selectedAchievementCategory = key;
+        refreshUI();
+      });
+      categoryTabs.appendChild(button);
+    });
+
+    const defs = Achievements.getVisibleDefs(selectedAchievementCategory);
+    list.innerHTML = '';
+    defs.forEach((def) => {
+      const achieved = !!Achievements.achieved[def.id];
+      const secretVisible = Achievements.isSecretVisible(def);
+      const item = document.createElement('article');
+      item.className = 'achievement-item' + (achieved ? ' achieved' : ' locked') + (def.secret && !secretVisible ? ' secret' : '');
+      const title = secretVisible ? def.title : '隐藏成就';
+      const desc = secretVisible ? def.desc : '达成某个特殊条件后显示。';
+      const category = AchievementCategories[def.category] || def.category;
+      item.innerHTML = `
+        <div class="achievement-item-head">
+          <span class="achievement-category-label">${category}</span>
+          <span class="achievement-point-value">+${def.points}</span>
+        </div>
+        <h3>${title}</h3>
+        <p>${desc}</p>
+        <strong>${achieved ? '已获得' : '未获得'}</strong>
+      `;
+      list.appendChild(item);
+    });
+  }
+
+  function showAchievementToast(def) {
+    const container = document.getElementById('achievement-toast-container');
+    if (!container || !def) return;
+
+    const toast = document.createElement('div');
+    toast.className = 'achievement-toast';
+    toast.dataset.toastId = String(++achievementToastId);
+
+    const badge = document.createElement('span');
+    badge.className = 'achievement-toast-badge';
+    badge.textContent = '成就';
+
+    const body = document.createElement('div');
+    body.className = 'achievement-toast-body';
+
+    const title = document.createElement('strong');
+    title.textContent = def.title;
+
+    const meta = document.createElement('span');
+    meta.textContent = `+${def.points} 成就点`;
+
+    body.appendChild(title);
+    body.appendChild(meta);
+    toast.appendChild(badge);
+    toast.appendChild(body);
+    container.appendChild(toast);
+
+    requestAnimationFrame(() => toast.classList.add('visible'));
+    setTimeout(() => {
+      toast.classList.remove('visible');
+      toast.addEventListener('transitionend', () => toast.remove(), { once: true });
+      setTimeout(() => toast.remove(), 400);
+    }, 5000);
+  }
+
+  function createMathSession(mode, stage) {
+    const questionQueue = mode === 'exam'
+      ? MathCampaign.generateQuestionBatch(stage, MATH_EXAM_QUESTION_BATCH_SIZE)
+      : [];
+    return {
+      mode,
+      stage,
+      timeLeft: 60,
+      correct: 0,
+      target: mode === 'exam' ? 8 : null,
+      questionQueue,
+      question: mode === 'exam' ? questionQueue.shift() : MathCampaign.generateQuestion(stage),
+      feedback: '',
+      feedbackType: '',
+      ended: false
+    };
+  }
+
+  function takeNextMathQuestion() {
+    if (!mathSession) return null;
+    if (mathSession.mode === 'exam') {
+      if (!Array.isArray(mathSession.questionQueue)) mathSession.questionQueue = [];
+      if (mathSession.questionQueue.length === 0) {
+        mathSession.questionQueue.push(...MathCampaign.generateQuestionBatch(
+          mathSession.stage,
+          MATH_EXAM_QUESTION_BATCH_SIZE
+        ));
+      }
+      return mathSession.questionQueue.shift();
+    }
+    return MathCampaign.generateQuestion(mathSession.stage);
+  }
+
+  function startMathPractice() {
+    if (selectedCampaignSubject !== 'math' || !Resources.isCampaignUnlocked()) return;
+    mathSession = createMathSession('practice', getSelectedPracticeStage());
+    refreshUI();
+    setTimeout(() => document.getElementById('math-answer-input')?.focus(), 0);
+  }
+
+  function startMathExam() {
+    if (selectedCampaignSubject !== 'math' || !Resources.isCampaignUnlocked()) return;
+    if ((Resources.mathStage || 1) >= MathCampaign.MAX_STAGE) {
+      mathSession = null;
+      alert('当前已到达已设计的数学关卡上限，后续关卡之后再开放。');
+      return;
+    }
+    if (Resources.answerTickets <= 0) {
+      alert('答题券不足。');
+      return;
+    }
+    Resources.answerTickets -= 1;
+    mathSession = createMathSession('exam', Resources.mathStage || 1);
+    refreshUI();
+    setTimeout(() => document.getElementById('math-answer-input')?.focus(), 0);
+  }
+
+  function finishMathSession(message, type = 'success') {
+    if (!mathSession || mathSession.ended) return;
+    mathSession.ended = true;
+    mathSession.timeLeft = Math.max(0, mathSession.timeLeft);
+    mathSession.feedback = message;
+    mathSession.feedbackType = type;
+  }
+
+  function finishMathPractice() {
+    if (!mathSession || mathSession.mode !== 'practice') return;
+    const gained = Resources.getMathPracticeTimeSand(mathSession.stage, mathSession.correct);
+    Resources.addTimeSand(gained);
+    finishMathSession(`练习结束，正确 ${mathSession.correct} 题，获得 ${gained} 时间之砂。`, 'success');
+  }
+
+  function passMathExam() {
+    if (!mathSession || mathSession.mode !== 'exam') return;
+    const oldStage = Resources.mathStage || 1;
+    Resources.mathStage = Math.min(MathCampaign.MAX_STAGE, oldStage + 1);
+    selectedPracticeRank = String(Resources.mathStage);
+    finishMathSession(`考试通过，数学晋级到 ${MathCampaign.getStageLabel(Resources.mathStage)}。`, 'success');
+  }
+
+  function failMathExam() {
+    finishMathSession(`考试结束，正确 ${mathSession?.correct || 0}/8 题。`, 'error');
+  }
+
+  function submitMathAnswer() {
+    if (!mathSession || mathSession.ended || !mathSession.question) return;
+    const input = document.getElementById('math-answer-input');
+    if (!input) return;
+    const value = input.value.trim();
+    if (value === '') return;
+    const answer = Number(value);
+    const isCorrect = Number.isFinite(answer) && answer === mathSession.question.answer;
+    input.value = '';
+
+    if (isCorrect) {
+      mathSession.correct += 1;
+      if (mathSession.mode === 'exam' && mathSession.correct >= mathSession.target) {
+        passMathExam();
+      } else {
+        mathSession.question = takeNextMathQuestion();
+        mathSession.feedback = '正确，下一题。';
+        mathSession.feedbackType = 'success';
+      }
+    } else {
+      if (mathSession.mode === 'exam') {
+        mathSession.timeLeft = Math.max(0, mathSession.timeLeft - 5);
+        if (mathSession.timeLeft <= 0) {
+          failMathExam();
+        } else {
+          mathSession.question = takeNextMathQuestion();
+          mathSession.feedback = '错误，剩余时间 -5 秒，已换题。';
+          mathSession.feedbackType = 'error';
+        }
+      } else {
+        mathSession.question = takeNextMathQuestion();
+        mathSession.feedback = '错误，已换题。';
+        mathSession.feedbackType = 'error';
+      }
+    }
+    refreshUI();
+  }
+
+  function tickMathSession(deltaSeconds) {
+    if (!mathSession || mathSession.ended) return;
+    mathSession.timeLeft = Math.max(0, mathSession.timeLeft - deltaSeconds);
+    if (mathSession.timeLeft > 0) return;
+    if (mathSession.mode === 'practice') finishMathPractice();
+    else failMathExam();
+  }
+
+  function updateMathSessionDisplay() {
+    const panel = document.getElementById('math-session-panel');
+    if (!panel) return;
+    panel.classList.toggle('hidden', !mathSession);
+    if (!mathSession) return;
+
+    const modeEl = document.getElementById('math-session-mode');
+    const titleEl = document.getElementById('math-session-title');
+    const timeEl = document.getElementById('math-session-time');
+    const correctEl = document.getElementById('math-session-correct');
+    const sourceEl = document.getElementById('math-question-source');
+    const exprEl = document.getElementById('math-question-expression');
+    const feedbackEl = document.getElementById('math-session-feedback');
+    const input = document.getElementById('math-answer-input');
+    const submitBtn = document.querySelector('#math-answer-form button[type="submit"]');
+    const endBtn = document.getElementById('btn-end-math-session');
+
+    if (modeEl) modeEl.textContent = mathSession.mode === 'exam' ? '考试' : '练习';
+    if (titleEl) {
+      const targetText = mathSession.mode === 'exam' ? ` · 目标 8 题` : '';
+      titleEl.textContent = `${MathCampaign.getStageLabel(mathSession.stage)} · ${MathCampaign.getStageTitle(mathSession.stage)}${targetText}`;
+    }
+    if (timeEl) timeEl.textContent = mathSession.timeLeft.toFixed(1) + 's';
+    if (correctEl) correctEl.textContent = mathSession.mode === 'exam'
+      ? `${mathSession.correct}/8`
+      : String(mathSession.correct);
+    if (sourceEl && mathSession.question) {
+      sourceEl.textContent = `${mathSession.question.sourceLabel} · ${mathSession.question.sourceTitle}`;
+    }
+    if (exprEl && mathSession.question) exprEl.innerHTML = mathSession.question.html;
+    if (feedbackEl) {
+      feedbackEl.textContent = mathSession.feedback || '';
+      feedbackEl.className = 'math-session-feedback' + (mathSession.feedbackType ? ' ' + mathSession.feedbackType : '');
+    }
+    if (input) input.disabled = mathSession.ended;
+    if (submitBtn) submitBtn.disabled = mathSession.ended;
+    if (endBtn) endBtn.textContent = mathSession.ended ? '关闭' : '结束';
+  }
+
+  const BUILDING_RESOURCE_LABELS = {
+    thinking: '思维力',
+    focus: '专注力',
+    draftPaper: '草稿纸',
+    mistakeNotes: '错题笔记',
+    reviewTickets: '复习券',
+    memoryShards: '记忆碎片'
+  };
+
+  function formatBuildingCost(cost) {
+    return Object.entries(cost)
+      .map(([key, value]) => `${BUILDING_RESOURCE_LABELS[key] || key}×${value}`)
+      .join(' ');
+  }
+
+  function updateBuildingsDisplay() {
+    Buildings.refreshUnlocks();
+    const section = document.getElementById('buildings-section');
+    const grid = document.getElementById('building-grid');
+    if (!section || !grid) return;
+
+    const unlockedIds = Buildings.getUnlockedIds();
+    const showPanel = unlockedIds.length > 0 || Buildings.isUnlocked();
+    section.classList.toggle('locked', !showPanel);
+    section.classList.toggle('revealed', showPanel);
+    if (!showPanel) {
+      buildingsGridSignature = '';
+      grid.innerHTML = '';
+      return;
+    }
+
+    const signature = JSON.stringify(unlockedIds.map((id) => ({
+      id,
+      level: Buildings.levels[id] || 0,
+      canUpgrade: Buildings.canAfford(Buildings.getCost(id))
+    })));
+    if (buildingsGridSignature === signature) return;
+
+    buildingsGridSignature = signature;
+    grid.innerHTML = '';
+    unlockedIds.forEach((id) => {
+      const def = Buildings.defs[id];
+      const level = Buildings.levels[id] || 0;
+      const cost = Buildings.getCost(id);
+      const canUpgrade = Buildings.canAfford(cost);
+      const card = document.createElement('div');
+      card.className = 'building-card tooltip-btn' + (level === 0 ? ' new-unlock' : '');
+      card.setAttribute('data-building-id', id);
+      card.setAttribute('data-tooltip',
+        `${def.name}\n${def.desc}\n当前：${level > 0 ? def.effectText(level) : '未建造'}\n下级：${def.effectText(level + 1)}\n消耗：${formatBuildingCost(cost)}`);
+      card.innerHTML = `
+        <div class="building-card-head">
+          <strong>${def.name}</strong>
+          <span>Lv.${level}</span>
+        </div>
+        <p>${level > 0 ? def.effectText(level) : def.desc}</p>
+        <button class="building-upgrade-btn ${canUpgrade ? '' : 'reqs-not-met'}" data-building-id="${id}" type="button">
+          升级
+        </button>
+      `;
+      grid.appendChild(card);
+    });
+  }
+
   function refreshUI() {
+    Achievements.updateProgress();
     updateResourceDisplay();
     updatePracticeDisplay();
     updateAttributesDisplay();
@@ -1065,10 +1635,16 @@
     updateCampaignDisplay();
     updateCardsDisplay();
     updateCardsPanel();
+    updateAchievementsDisplay();
+    updateMathSessionDisplay();
+    updateBuildingsDisplay();
   }
 
   function gameLoop() {
+    const before = Game.lastUpdateTime || Date.now();
     Game.tick();
+    const deltaSeconds = Math.max(0, ((Game.lastUpdateTime || before) - before) / 1000);
+    tickMathSession(deltaSeconds);
     refreshUI();
   }
 
@@ -1105,6 +1681,9 @@
     const tabDaily = document.getElementById('tab-daily');
     const tabCampaign = document.getElementById('tab-campaign');
     const tabSkilltree = document.getElementById('tab-skilltree');
+    const btnAchievements = document.getElementById('btn-achievements');
+    const modalAchievements = document.getElementById('modal-achievements');
+    const btnCloseAchievements = document.getElementById('btn-close-achievements');
     const btnPanelBack = document.getElementById('btn-panel-back');
     const panelDaily = document.getElementById('panel-daily');
     const panelCampaign = document.getElementById('panel-campaign');
@@ -1130,6 +1709,50 @@
         switchPanel('cards');
       });
     }
+    if (btnAchievements) {
+      btnAchievements.addEventListener('click', () => {
+        modalAchievements?.classList.remove('hidden');
+        updateAchievementsDisplay();
+      });
+    }
+    if (btnCloseAchievements) {
+      btnCloseAchievements.addEventListener('click', () => modalAchievements?.classList.add('hidden'));
+    }
+    if (modalAchievements) {
+      modalAchievements.addEventListener('click', (e) => {
+        if (e.target === modalAchievements) modalAchievements.classList.add('hidden');
+      });
+    }
+
+    const practiceRankSelect = document.getElementById('campaign-practice-rank');
+    if (practiceRankSelect) {
+      practiceRankSelect.addEventListener('change', () => {
+        selectedPracticeRank = practiceRankSelect.value || String(Resources.mathStage || 1);
+        refreshUI();
+      });
+    }
+
+    const btnStartMathPractice = document.getElementById('btn-start-math-practice');
+    const btnStartMathExam = document.getElementById('btn-start-math-exam');
+    const mathAnswerForm = document.getElementById('math-answer-form');
+    const btnEndMathSession = document.getElementById('btn-end-math-session');
+    if (btnStartMathPractice) btnStartMathPractice.addEventListener('click', startMathPractice);
+    if (btnStartMathExam) btnStartMathExam.addEventListener('click', startMathExam);
+    if (mathAnswerForm) {
+      mathAnswerForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        submitMathAnswer();
+      });
+    }
+    if (btnEndMathSession) {
+      btnEndMathSession.addEventListener('click', () => {
+        if (!mathSession) return;
+        if (!mathSession.ended && mathSession.mode === 'practice') finishMathPractice();
+        else if (!mathSession.ended) failMathExam();
+        else mathSession = null;
+        refreshUI();
+      });
+    }
 
     const panelCards = document.getElementById('panel-cards');
     if (panelCards) {
@@ -1142,6 +1765,24 @@
             renderCardDetail();
             updateCardsDisplay();
           }
+        }
+      });
+    }
+
+    const buildingGrid = document.getElementById('building-grid');
+    if (buildingGrid) {
+      buildingGrid.addEventListener('click', (e) => {
+        const btn = e.target.closest('.building-upgrade-btn');
+        if (!btn) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const upgraded = Buildings.upgrade(btn.dataset.buildingId);
+        if (upgraded) {
+          buildingsGridSignature = '';
+          refreshUI();
+        } else {
+          Exam.appendBattleLog('建筑升级条件还不够。');
+          updateBattleLog();
         }
       });
     }
@@ -1192,6 +1833,11 @@
         if (SkillTree.upgradeMath()) refreshUI();
       });
     }
+    document.querySelectorAll('[data-skill-node]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        if (SkillTree.upgradeNode(btn.dataset.skillNode)) refreshUI();
+      });
+    });
 
     const campaignNodeGrid = document.getElementById('campaign-node-grid');
     const btnCampaignBack = document.getElementById('btn-campaign-back');
@@ -1285,15 +1931,39 @@
       });
     }
 
+    const btnLearnGrind = document.getElementById('btn-learn-grind');
+    if (btnLearnGrind) {
+      btnLearnGrind.addEventListener('click', () => {
+        if (Buildings.learnGrindMode()) refreshUI();
+      });
+    }
+
     const btnChallenge = document.getElementById('btn-challenge');
     if (btnChallenge) {
       btnChallenge.addEventListener('click', () => {
-        const cur = Exam.getCurrentQuestion();
-        if (!cur || Battle.currentHp <= 0 || Battle.isInBattle) return;
-        if (Battle.startBattle(cur.examIndex, cur.questionIndex)) {
+        const isGrindMode = Buildings.grindModeLearned && Buildings.mode === 'grind';
+        const target = isGrindMode ? Battle.getGrindTarget() : Exam.getCurrentQuestion();
+        if (!target || Battle.currentHp <= 0 || Battle.isInBattle) return;
+        if (Battle.startBattle(target.examIndex, target.questionIndex, isGrindMode ? 'grind' : 'push')) {
           updateBattleLog();
           refreshUI();
         }
+      });
+    }
+
+    const btnModePush = document.getElementById('btn-mode-push');
+    const btnModeGrind = document.getElementById('btn-mode-grind');
+    if (btnModePush) {
+      btnModePush.addEventListener('click', () => {
+        Buildings.mode = 'push';
+        refreshUI();
+      });
+    }
+    if (btnModeGrind) {
+      btnModeGrind.addEventListener('click', () => {
+        if (!Buildings.grindModeLearned) return;
+        Buildings.mode = 'grind';
+        refreshUI();
       });
     }
 
@@ -1361,17 +2031,21 @@
     const btnCloseImport = document.getElementById('btn-close-import');
 
     if (btnAutoSave) btnAutoSave.addEventListener('click', () => {
+      Achievements.recordManualSave();
       if (Save.saveToCache()) {
         btnAutoSave.textContent = '已保存';
         setTimeout(() => { btnAutoSave.textContent = '自动保存'; }, 1500);
+        refreshUI();
       }
     });
 
     if (btnExport) btnExport.addEventListener('click', () => {
+      Achievements.recordManualSave();
       const base64 = Save.exportToBase64();
       exportTextarea.value = base64 || '';
       setModalStatus(exportStatusEl, '');
       modalExport.classList.remove('hidden');
+      refreshUI();
     });
 
     if (btnImport) btnImport.addEventListener('click', () => {
@@ -1435,10 +2109,70 @@
     const modalVersion = document.getElementById('modal-version');
     const btnVersion = document.getElementById('btn-version');
     const btnCloseVersion = document.getElementById('btn-close-version');
+    const modalSettings = document.getElementById('modal-settings');
+    const btnSettings = document.getElementById('btn-settings');
+    const btnCloseSettings = document.getElementById('btn-close-settings');
     if (btnVersion) btnVersion.addEventListener('click', () => modalVersion?.classList.remove('hidden'));
     if (btnCloseVersion) btnCloseVersion.addEventListener('click', () => modalVersion?.classList.add('hidden'));
     if (modalVersion) modalVersion.addEventListener('click', (e) => {
       if (e.target === modalVersion) modalVersion.classList.add('hidden');
+    });
+    if (btnSettings) btnSettings.addEventListener('click', () => modalSettings?.classList.remove('hidden'));
+    if (btnCloseSettings) btnCloseSettings.addEventListener('click', () => modalSettings?.classList.add('hidden'));
+    if (modalSettings) modalSettings.addEventListener('click', (e) => {
+      if (e.target === modalSettings) modalSettings.classList.add('hidden');
+    });
+
+    const modalTimeSand = document.getElementById('modal-time-sand');
+    const btnOpenTimeSand = document.getElementById('btn-open-time-sand');
+    const btnCloseTimeSand = document.getElementById('btn-close-time-sand');
+    const btnFfMinus = document.getElementById('btn-ff-minus');
+    const btnFfPlus = document.getElementById('btn-ff-plus');
+    const btnFfMax = document.getElementById('btn-ff-max');
+    const btnTicketMinus = document.getElementById('btn-ticket-minus');
+    const btnTicketPlus = document.getElementById('btn-ticket-plus');
+    const btnTicketMax = document.getElementById('btn-ticket-max');
+    const btnExchangeFastForward = document.getElementById('btn-exchange-fast-forward');
+    const btnExchangeTicket = document.getElementById('btn-exchange-ticket');
+    const modalFastForwardReport = document.getElementById('modal-fast-forward-report');
+    const btnCloseFastForwardReport = document.getElementById('btn-close-fast-forward-report');
+
+    if (btnOpenTimeSand) btnOpenTimeSand.addEventListener('click', openTimeSandModal);
+    if (btnCloseTimeSand) btnCloseTimeSand.addEventListener('click', () => modalTimeSand?.classList.add('hidden'));
+    if (modalTimeSand) modalTimeSand.addEventListener('click', (e) => {
+      if (e.target === modalTimeSand) modalTimeSand.classList.add('hidden');
+    });
+    if (btnFfMinus) btnFfMinus.addEventListener('click', () => {
+      exchangeFastForwardMinutes = Math.max(1, exchangeFastForwardMinutes - 1);
+      updateTimeSandModal();
+    });
+    if (btnFfPlus) btnFfPlus.addEventListener('click', () => {
+      exchangeFastForwardMinutes += 1;
+      updateTimeSandModal();
+    });
+    if (btnFfMax) btnFfMax.addEventListener('click', () => {
+      exchangeFastForwardMinutes = Math.max(1, Math.floor(Resources.timeSand / Resources.TIME_SAND_PER_FAST_FORWARD_MINUTE));
+      updateTimeSandModal();
+    });
+    if (btnTicketMinus) btnTicketMinus.addEventListener('click', () => {
+      exchangeTicketCount = Math.max(1, exchangeTicketCount - 1);
+      updateTimeSandModal();
+    });
+    if (btnTicketPlus) btnTicketPlus.addEventListener('click', () => {
+      exchangeTicketCount += 1;
+      updateTimeSandModal();
+    });
+    if (btnTicketMax) btnTicketMax.addEventListener('click', () => {
+      exchangeTicketCount = Math.max(1, Math.floor(Resources.timeSand / Resources.TIME_SAND_PER_TICKET));
+      updateTimeSandModal();
+    });
+    if (btnExchangeFastForward) btnExchangeFastForward.addEventListener('click', redeemFastForward);
+    if (btnExchangeTicket) btnExchangeTicket.addEventListener('click', redeemTickets);
+    if (btnCloseFastForwardReport) btnCloseFastForwardReport.addEventListener('click', () => {
+      modalFastForwardReport?.classList.add('hidden');
+    });
+    if (modalFastForwardReport) modalFastForwardReport.addEventListener('click', (e) => {
+      if (e.target === modalFastForwardReport) modalFastForwardReport.classList.add('hidden');
     });
 
     /* 剧情演出事件绑定 */
@@ -1483,11 +2217,18 @@
         Resources.thinkingPower = 0;
         Resources.focusPower = 0;
         Resources.inspiration = 0;
+        Resources.timeSand = 0;
+        Resources.answerTickets = 0;
+        Resources.mathStage = 1;
         Resources.inspirationEverDropped = false;
         Resources.skilltreeEverUnlocked = false;
         Campaign.reset();
         SkillTree.grammarLevel = 0;
         SkillTree.mathLevel = 0;
+        SkillTree.sequenceLevel = 0;
+        SkillTree.variableLevel = 0;
+        SkillTree.additionLevel = 0;
+        SkillTree.subtractionLevel = 0;
         Resources.currentActivity = null;
         Resources.practiceLearned = false;
         Resources.focusEverUnlocked = false;
@@ -1505,6 +2246,7 @@
         Battle.autoChallengeOn = true;
         Battle.hasDefeatedOnce = false;
         Battle.victoriesWithoutDrop = 0;
+        Battle.battleMode = 'push';
         Battle.isInBattle = false;
         if (Battle.battleRoundTimer) {
           clearTimeout(Battle.battleRoundTimer);
@@ -1523,13 +2265,19 @@
         localStorage.removeItem(Save.CACHE_KEY);
         campaignStageViewOpen = false;
         campaignSuccessModalState = null;
+        mathSession = null;
         selectedCardDefId = null;
+        selectedAchievementCategory = 'map';
+        selectedPracticeRank = '1';
+        Buildings.reset();
         Cards.reset();
+        Achievements.init();
         markCampaignMapDirty();
         closeCampaignSuccessModal(false);
         resetCampaignStageSession();
         const btnWrap = document.getElementById('practice-buttons');
         if (btnWrap) btnWrap.classList.remove('hidden');
+        modalSettings?.classList.add('hidden');
         switchPanel('daily');
       });
     }
@@ -1560,17 +2308,33 @@
       costFocus = 30;
       title = '解锁自动练习';
       desc = '体力回满时自动开始练习！';
+    } else if (type === 'grind') {
+      costThink = 20;
+      costFocus = 20;
+      title = '解锁刷题模式';
+      desc = '消耗复习券，重复刷已通关题获得草稿纸。';
     }
     const thinkMet = think >= costThink;
     const focusMet = focus >= costFocus;
     const span = (text, met) => `<span class="${met ? 'req-met' : 'req-unmet'}">${text}</span>`;
-    return `${title}\n${desc}\n消耗 ${span('思维力×' + costThink, thinkMet)} ${span('专注力×' + costFocus, focusMet)}`;
+    const extra = type === 'grind'
+      ? ' ' + span('复习券×2', Buildings.reviewTickets >= 2)
+      : '';
+    return `${title}\n${desc}\n消耗 ${span('思维力×' + costThink, thinkMet)} ${span('专注力×' + costFocus, focusMet)}${extra}`;
   }
 
   function buildSkillTreeTooltip(btn) {
     const type = btn.getAttribute('data-tooltip-type');
     if (!type) return null;
     const span = (text, met) => `<span class="${met ? 'req-met' : 'req-unmet'}">${text}</span>`;
+    const resource = (name, value, met) => span(name + ' ×' + value, met);
+    const formatCost = (cost) => {
+      const rows = [];
+      if (cost.inspiration != null) rows.push(resource('灵感', cost.inspiration, Resources.inspiration >= cost.inspiration));
+      if (cost.thinking != null) rows.push(resource('思维力', cost.thinking, Resources.thinkingPower >= cost.thinking));
+      if (cost.focus != null) rows.push(resource('专注力', cost.focus, Resources.focusPower >= cost.focus));
+      return rows.join(' ');
+    };
     if (type === 'skill-grammar') {
       const c = SkillTree.getGrammarCost();
       const inspMet = Resources.inspiration >= c.inspiration;
@@ -1582,6 +2346,31 @@
       const inspMet = Resources.inspiration >= c.inspiration;
       const thinkMet = Resources.thinkingPower >= c.thinking;
       return `数学是算法之母！\n思维+0.2 知识点+0.2\n${span('灵感 ×' + c.inspiration, inspMet)} ${span('思维力 ×' + c.thinking, thinkMet)}`;
+    }
+    if (type === 'skill-layer2-lock') {
+      return SkillTree.getLayer2LockText();
+    }
+    if (type === 'skill-layer3-lock') {
+      return SkillTree.getLayer3LockText();
+    }
+    if (type === 'skill-node') {
+      const id = btn.dataset.skillNode;
+      const names = {
+        sequence: '顺序结构',
+        variable: '变量类型',
+        addition: '加法',
+        subtraction: '减法'
+      };
+      const prereqs = {
+        sequence: '前置：第二层解锁',
+        variable: '前置：语法 Lv.10',
+        addition: '前置：第二层解锁',
+        subtraction: '前置：加法 Lv.5'
+      };
+      const def = SkillTree.nodeDefs[id];
+      if (!def) return null;
+      const unlocked = SkillTree.isNodeUnlocked(id);
+      return `${names[id]}\n${prereqs[id]}${unlocked ? '' : '（未满足）'}\n每级：${def.effectText}\n消耗 ${formatCost(SkillTree.getNodeCost(id))}`;
     }
     return null;
   }
@@ -1636,7 +2425,7 @@
         let content;
         if (btn.classList.contains('tooltip-research')) {
           content = buildResearchTooltip(btn);
-        } else if (btn.classList.contains('tooltip-skilltree')) {
+        } else if (btn.classList.contains('tooltip-skilltree') || (btn.getAttribute('data-tooltip-type') || '').startsWith('skill-')) {
           content = buildSkillTreeTooltip(btn);
         } else {
           content = btn.getAttribute('data-tooltip');
@@ -1690,6 +2479,7 @@
     bindEvents();
     initTooltips();
     refreshUI();
+    Achievements.onUnlock = showAchievementToast;
 
     setInterval(gameLoop, 100);
     window.addEventListener('beforeunload', () => Save.saveToCache());

@@ -9,11 +9,14 @@ const Resources = {
   thinkingPower: 0,
   focusPower: 0,
   inspiration: 0,
+  timeSand: 0,
+  answerTickets: 0,
+  mathStage: 1,
 
   /** 灵感是否曾掉落过（首次掉落时显示灵感、关卡与技能树页签） */
   inspirationEverDropped: false,
 
-  /** 技能树第一层是否已解锁（第一章全部通关后永久解锁） */
+  /** 旧存档兼容字段：曾用于记录技能树第一层永久解锁 */
   skilltreeEverUnlocked: false,
 
   /** 当前活动类型：'thinking' | 'focus' | 'running' | null */
@@ -25,6 +28,10 @@ const Resources = {
     focus: 1,
     running: 3
   },
+
+  /** 兑换比例 */
+  TIME_SAND_PER_FAST_FORWARD_MINUTE: 1000,
+  TIME_SAND_PER_TICKET: 10000,
 
   /** 专注力解锁条件 */
   FOCUS_UNLOCK_THRESHOLD: 10,
@@ -43,17 +50,17 @@ const Resources = {
   },
 
   /**
-   * 技能树第一层是否已解锁（第一章全部通关后永久解锁）
+   * 技能树第一层是否已解锁（首次获得灵感后开放）
    */
   isSkilltreeLayerUnlocked() {
-    return this.skilltreeEverUnlocked;
+    return this.isSkilltreeUnlocked();
   },
 
   /**
-   * 关卡页签是否已解锁（首次获得灵感后即可进入）
+   * 关卡页签是否已解锁（到达主线第 2 图后开放）
    */
   isCampaignUnlocked() {
-    return this.inspirationEverDropped || this.skilltreeEverUnlocked;
+    return typeof Exam !== 'undefined' && Exam.unlockedExamIndex >= 1;
   },
 
   /**
@@ -105,14 +112,78 @@ const Resources = {
     this.currentActivity = null;
   },
 
+  addTimeSand(amount) {
+    this.timeSand += Math.max(0, Math.floor(Number(amount) || 0));
+  },
+
+  addAnswerTickets(amount) {
+    this.answerTickets += Math.max(0, Math.floor(Number(amount) || 0));
+  },
+
+  spendTimeSand(amount) {
+    const cost = Math.max(0, Math.floor(Number(amount) || 0));
+    if (this.timeSand < cost) return false;
+    this.timeSand -= cost;
+    return true;
+  },
+
+  getFastForwardCost(minutes) {
+    return Math.max(0, Math.floor(Number(minutes) || 0)) * this.TIME_SAND_PER_FAST_FORWARD_MINUTE;
+  },
+
+  getTicketExchangeCost(count) {
+    return Math.max(0, Math.floor(Number(count) || 0)) * this.TIME_SAND_PER_TICKET;
+  },
+
+  exchangeAnswerTickets(count) {
+    const amount = Math.max(0, Math.floor(Number(count) || 0));
+    const cost = this.getTicketExchangeCost(amount);
+    if (amount <= 0 || !this.spendTimeSand(cost)) return false;
+    this.answerTickets += amount;
+    return true;
+  },
+
+  getActivityRate(activity) {
+    const base = Number(this.rates[activity] || 0);
+    const bonuses = typeof Cards !== 'undefined' ? Cards.getBonuses() : {};
+    if (activity === 'thinking') {
+      return base * (1 + (bonuses.thinkingRatePercent || 0) / 100) + (bonuses.thinkingRateFlat || 0);
+    }
+    if (activity === 'focus') {
+      return base * (1 + (bonuses.focusRatePercent || 0) / 100) + (bonuses.focusRateFlat || 0);
+    }
+    return base;
+  },
+
+  getMathPracticeTimeSand(rankValue, correctCount) {
+    const rank = Math.max(1, Math.floor(Number(rankValue) || 1));
+    const solved = Math.max(0, Math.floor(Number(correctCount) || 0));
+    const base = rank * rank * Math.pow(solved, 1.5);
+    const bonuses = typeof Cards !== 'undefined' ? Cards.getBonuses() : {};
+    const buildingBonuses = typeof Buildings !== 'undefined' ? Buildings.getBonuses() : {};
+    return Math.floor(base * (1 + (bonuses.timeSandPracticePercent || 0) / 100) +
+      (bonuses.timeSandPracticeFlat || 0) + (buildingBonuses.timeSandPracticeFlat || 0));
+  },
+
+  getMathPracticeCardDropCount(correctCount) {
+    const solved = Math.max(0, Math.floor(Number(correctCount) || 0));
+    if (solved <= 5) return 0;
+    if (solved <= 10) return 1;
+    return Math.floor(Math.pow(solved / 10, 5));
+  },
+
   /**
    * 根据 delta 时间推进资源产出
    * @param {number} deltaSeconds 经过的秒数
    */
   tick(deltaSeconds) {
+    const buildingBonuses = typeof Buildings !== 'undefined' ? Buildings.getBonuses() : {};
+    this.thinkingPower += (buildingBonuses.autoThinkingRate || 0) * deltaSeconds;
+    this.focusPower += (buildingBonuses.autoFocusRate || 0) * deltaSeconds;
+    if (this.thinkingPower >= this.FOCUS_UNLOCK_THRESHOLD) this.focusEverUnlocked = true;
     if (!this.currentActivity) return;
 
-    const rate = this.rates[this.currentActivity];
+    const rate = this.getActivityRate(this.currentActivity);
     const gained = rate * deltaSeconds;
 
     if (this.currentActivity === 'thinking') {
@@ -139,6 +210,9 @@ const Resources = {
       thinkingPower: this.thinkingPower,
       focusPower: this.focusPower,
       inspiration: this.inspiration,
+      timeSand: this.timeSand,
+      answerTickets: this.answerTickets,
+      mathStage: this.mathStage,
       inspirationEverDropped: this.inspirationEverDropped,
       skilltreeEverUnlocked: this.skilltreeEverUnlocked,
       currentActivity: this.currentActivity,
@@ -155,6 +229,9 @@ const Resources = {
     this.thinkingPower = snapshot.thinkingPower ?? 0;
     this.focusPower = snapshot.focusPower ?? 0;
     this.inspiration = snapshot.inspiration ?? 0;
+    this.timeSand = snapshot.timeSand ?? 0;
+    this.answerTickets = snapshot.answerTickets ?? 0;
+    this.mathStage = Math.max(1, Math.min(10, Math.floor(snapshot.mathStage ?? 1)));
     this.inspirationEverDropped = snapshot.inspirationEverDropped ?? false;
     this.skilltreeEverUnlocked = snapshot.skilltreeEverUnlocked ?? false;
     this.currentActivity = snapshot.currentActivity ?? null;

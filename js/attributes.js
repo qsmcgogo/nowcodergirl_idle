@@ -19,18 +19,26 @@ const Attributes = {
     return this[attr] + bonus;
   },
 
-  /** 攻击力 = 思维 * 知识点 * 手速，再乘以卡片加成 */
+  /** 攻击力 = (基础攻击 + 基础攻击加值) * 百分比加成 + 攻击加值 */
   getAttack() {
+    const cardBonuses = typeof Cards !== 'undefined' ? Cards.getBonuses() : {};
     const base = this.getEffective('siwei') * this.getEffective('zhishi') * this.getEffective('shousu');
-    const cardBonus = typeof Cards !== 'undefined' ? Cards.getBonuses().atkPercent : 0;
-    return base * (1 + cardBonus / 100);
+    const panelBase = base + (cardBonuses.baseAtkFlat || 0);
+    const cardBonus = cardBonuses.atkPercent || 0;
+    const achievementBonus = typeof Achievements !== 'undefined' ? Achievements.getBonusPercent() : 0;
+    const buildingBonus = typeof Buildings !== 'undefined' ? (Buildings.getBonuses().globalCombatPercent || 0) : 0;
+    return panelBase * (1 + (cardBonus + achievementBonus + buildingBonus) / 100) + (cardBonuses.atkFlat || 0);
   },
 
-  /** 血量 = 码力 * 耐力，再乘以卡片加成 */
+  /** 血量 = (基础血量 + 基础血量加值) * 百分比加成 + 血量加值 */
   getHp() {
+    const cardBonuses = typeof Cards !== 'undefined' ? Cards.getBonuses() : {};
     const base = this.getEffective('mali') * this.getEffective('naili');
-    const cardBonus = typeof Cards !== 'undefined' ? Cards.getBonuses().hpPercent : 0;
-    return Math.floor(base * (1 + cardBonus / 100));
+    const panelBase = base + (cardBonuses.baseHpFlat || 0);
+    const cardBonus = cardBonuses.hpPercent || 0;
+    const achievementBonus = typeof Achievements !== 'undefined' ? Achievements.getBonusPercent() : 0;
+    const buildingBonus = typeof Buildings !== 'undefined' ? (Buildings.getBonuses().globalCombatPercent || 0) : 0;
+    return Math.floor(panelBase * (1 + (cardBonus + achievementBonus + buildingBonus) / 100) + (cardBonuses.hpFlat || 0));
   },
 
   getSnapshot() {

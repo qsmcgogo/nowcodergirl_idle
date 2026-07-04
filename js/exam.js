@@ -95,18 +95,16 @@ const Exam = {
 
   /** 题目攻击力：试卷1 A题1 ~ T题10，平滑 */
   getQuestionAttack(examIndex, questionIndex) {
-    if (examIndex === 0) {
-      return 1 + (9 * questionIndex) / 19;
-    }
-    return (examIndex + 1) * (questionIndex + 1);
+    const chapter1Attack = 1 + (9 * questionIndex) / 19;
+    if (examIndex === 0) return chapter1Attack;
+    return chapter1Attack * Math.pow(1.35, examIndex) + examIndex * 2.5;
   },
 
   /** 题目血量：试卷1 A题5 ~ T题50，平滑 */
   getQuestionHp(examIndex, questionIndex) {
-    if (examIndex === 0) {
-      return 5 + (45 * questionIndex) / 19;
-    }
-    return (examIndex + 1) * (questionIndex + 2) * 5;
+    const chapter1Hp = 5 + (45 * questionIndex) / 19;
+    if (examIndex === 0) return chapter1Hp;
+    return chapter1Hp * Math.pow(1.5, examIndex) + examIndex * 20;
   },
 
   appendBattleLog(text) {

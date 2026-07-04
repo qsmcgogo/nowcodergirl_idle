@@ -106,11 +106,6 @@ const Campaign = {
     if (gotStar) state.stars = Math.max(state.stars, 1);
     const gainedStars = !hadStar && state.stars > 0 ? 1 : 0;
 
-    const firstChapterCleared = this.isFirstChapterCleared();
-    if (firstChapterCleared) {
-      Resources.skilltreeEverUnlocked = true;
-    }
-
     // 首次通关 Stage 0-1 掉落第一张卡片
     let cardReward = null;
     if (firstClear && stageId === 'world0_ch1_stage1') {
@@ -123,7 +118,7 @@ const Campaign = {
     return {
       ok: true,
       firstClear,
-      unlockedSkilltree: firstChapterCleared,
+      unlockedSkilltree: false,
       gotStar,
       gainedStars,
       cardReward,
@@ -164,9 +159,6 @@ const Campaign = {
     }
     if (snapshot.selectedStageId && this.stageDefs[snapshot.selectedStageId]) {
       this.selectedStageId = snapshot.selectedStageId;
-    }
-    if (this.isFirstChapterCleared()) {
-      Resources.skilltreeEverUnlocked = true;
     }
   }
 };

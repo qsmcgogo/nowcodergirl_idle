@@ -18,7 +18,7 @@
           <button class="panel-tab active" id="tab-daily" data-tab="daily">日常</button>
           <button class="panel-tab inspiration-unlockable locked" id="tab-campaign" data-tab="campaign">关卡</button>
           <button class="panel-tab inspiration-unlockable locked tooltip-btn" id="tab-skilltree" data-tab="skilltree"
-            data-tooltip="首次获得灵感后可进入，第一章全部通关后点亮第一层">技能树</button>
+            data-tooltip="首次获得灵感后解锁技能树">技能树</button>
           <button class="panel-tab cards-unlockable locked" id="tab-cards" data-tab="cards">卡片</button>
         </div>
       </header>
@@ -39,6 +39,26 @@
         <div class="resource-item inspiration-unlockable locked" data-resource="inspiration" id="inspiration-resource">
           <span class="resource-name">灵感</span>
           <span class="resource-value" id="inspiration-power">0</span>
+        </div>
+        <div class="resource-item building-resource-unlockable locked tooltip-btn" data-resource="draft-paper" id="draft-paper-resource"
+          data-tooltip="刷题和主线会获得草稿纸，用于升级早期建筑">
+          <span class="resource-name">草稿纸</span>
+          <span class="resource-value" id="draft-paper-count">0</span>
+        </div>
+        <div class="resource-item mistake-resource-unlockable locked tooltip-btn" data-resource="mistake-notes" id="mistake-notes-resource"
+          data-tooltip="战败和刷题会获得错题笔记，用于失败补偿类建筑">
+          <span class="resource-name">错题笔记</span>
+          <span class="resource-value" id="mistake-notes-count">0</span>
+        </div>
+        <div class="resource-item review-resource-unlockable locked tooltip-btn" data-resource="review-tickets" id="review-tickets-resource"
+          data-tooltip="复习券用于解锁和进入刷题模式，刷题不会产出复习券">
+          <span class="resource-name">复习券</span>
+          <span class="resource-value" id="review-ticket-count">0</span>
+        </div>
+        <div class="resource-item memory-resource-unlockable locked tooltip-btn" data-resource="memory-shards" id="memory-shards-resource"
+          data-tooltip="记忆碎片来自关键题进度，用于升级章节型建筑">
+          <span class="resource-name">记忆碎片</span>
+          <span class="resource-value" id="memory-shards-count">0</span>
         </div>
       </section>
 
@@ -70,14 +90,24 @@
             data-tooltip-type="running">跑步</button>
           <button class="action-btn auto-practice-unlockable locked tooltip-btn tooltip-research" id="btn-learn-autopractice"
             data-tooltip-type="autopractice">自动练习</button>
+          <button class="action-btn grind-research-unlockable locked tooltip-btn tooltip-research" id="btn-learn-grind"
+            data-tooltip-type="grind">刷题模式</button>
         </div>
+      </section>
+
+      <section class="buildings-section building-panel-unlockable locked" id="buildings-section">
+        <div class="section-headline">
+          <h2>建筑</h2>
+          <span class="section-hint tooltip-btn" data-tooltip="建筑会自动产出资源或改善第一章体验；新建筑会随主线进度逐步出现">?</span>
+        </div>
+        <div class="building-grid" id="building-grid"></div>
       </section>
       </div>
 
       <div class="panel-tab-content hidden" id="panel-campaign">
         <section class="campaign-summary">
-          <h2>World 0</h2>
-          <p class="campaign-summary-text" id="campaign-summary-text">右侧会显示关卡地图。点击小方块可进入关卡，完成或放弃后可返回地图。</p>
+          <h2>关卡</h2>
+          <p class="campaign-summary-text" id="campaign-summary-text">主线第 2 图解锁数学训练。语文训练将在主线第 10 图开放。</p>
         </section>
       </div>
 
@@ -126,18 +156,34 @@
 
       <div class="panel-tab-content hidden" id="panel-skilltree">
         <section class="skilltree-placeholder skilltree-locked-placeholder" id="skilltree-placeholder">
-          <p>通关第一章后解锁技能树第一层</p>
+          <p>首次获得灵感后解锁技能树</p>
         </section>
         <section class="skilltree-content hidden" id="skilltree-content">
-          <div class="skilltree-layer">
-            <button class="action-btn tooltip-btn tooltip-skilltree" id="btn-upgrade-grammar"
-              data-tooltip-type="skill-grammar">语法 Lv.<em id="skill-grammar-lv">0</em></button>
-            <button class="action-btn tooltip-btn tooltip-skilltree" id="btn-upgrade-math"
-              data-tooltip-type="skill-math">数学 Lv.<em id="skill-math-lv">0</em></button>
+          <div class="skilltree-layer skilltree-layer-one">
+            <button class="action-btn skill-node skill-node-root tooltip-btn tooltip-skilltree" id="btn-upgrade-grammar"
+              data-tooltip-type="skill-grammar" style="grid-area: grammar;">语法 Lv.<em id="skill-grammar-lv">0</em></button>
+            <button class="action-btn skill-node skill-node-root tooltip-btn tooltip-skilltree" id="btn-upgrade-math"
+              data-tooltip-type="skill-math" style="grid-area: math;">数学 Lv.<em id="skill-math-lv">0</em></button>
           </div>
-          <div class="skilltree-divider">— — — — — — — — — —</div>
+          <div class="skilltree-layer-lock tooltip-btn tooltip-skilltree" id="skilltree-layer2-lock" data-tooltip-type="skill-layer2-lock">🔒 第二层</div>
+          <div class="skilltree-layer skilltree-layer-two hidden" id="skilltree-layer2">
+            <div class="skilltree-arrow arrow-grammar-sequence"></div>
+            <div class="skilltree-arrow arrow-grammar-variable"></div>
+            <div class="skilltree-arrow arrow-math-addition"></div>
+            <div class="skilltree-arrow arrow-addition-subtraction"></div>
+            <button class="action-btn skill-node tooltip-btn tooltip-skilltree" data-skill-node="sequence"
+              data-tooltip-type="skill-node" style="grid-area: sequence;">顺序结构 Lv.<em id="skill-sequence-lv">0</em></button>
+            <button class="action-btn skill-node tooltip-btn tooltip-skilltree" data-skill-node="variable"
+              data-tooltip-type="skill-node" style="grid-area: variable;">变量类型 Lv.<em id="skill-variable-lv">0</em></button>
+            <button class="action-btn skill-node tooltip-btn tooltip-skilltree" data-skill-node="addition"
+              data-tooltip-type="skill-node" style="grid-area: addition;">加法 Lv.<em id="skill-addition-lv">0</em></button>
+            <button class="action-btn skill-node tooltip-btn tooltip-skilltree" data-skill-node="subtraction"
+              data-tooltip-type="skill-node" style="grid-area: subtraction;">减法 Lv.<em id="skill-subtraction-lv">0</em></button>
+          </div>
+          <div class="skilltree-layer-lock tooltip-btn tooltip-skilltree hidden" id="skilltree-layer3-lock" data-tooltip-type="skill-layer3-lock">🔒 第三层</div>
         </section>
       </div>
+
     </aside>
 
     <!-- 右半部分：展示区 -->
@@ -155,61 +201,84 @@
         </div>
 
         <div class="campaign-display hidden" id="campaign-display">
-          <div class="campaign-map-view" id="campaign-map-view">
-            <div class="campaign-map-header">
-              <div class="campaign-map-header-row">
+          <div class="campaign-hub-view" id="campaign-hub-view">
+            <div class="campaign-hub-header">
+              <div>
+                <p class="campaign-kicker">Challenge</p>
+                <h2 class="campaign-title">关卡训练</h2>
+                <p class="campaign-description">通过练习熟悉题型，通过考试晋级。练习可获得时间之砂，用于快进或兑换答题券。</p>
+              </div>
+              <div class="campaign-rank-card">
+                <span class="campaign-rank-label">当前等级</span>
+                <strong id="campaign-current-rank">F</strong>
+              </div>
+            </div>
+
+            <div class="campaign-status-row">
+              <div class="campaign-status-item campaign-resource-item">
+                <span>时间之砂</span>
+                <strong id="campaign-time-sand">0</strong>
+                <button class="campaign-resource-add" id="btn-open-time-sand" type="button" title="兑换快进或答题券">+</button>
+              </div>
+              <div class="campaign-status-item">
+                <span>答题券</span>
+                <strong id="campaign-ticket-count">0</strong>
+              </div>
+              <div class="campaign-status-item">
+                <span>主线进度</span>
+                <strong id="campaign-main-map">第 1 图</strong>
+              </div>
+              <div class="campaign-status-item">
+                <span>考试规则</span>
+                <strong>60 秒限时</strong>
+              </div>
+            </div>
+
+            <div class="campaign-subject-grid" id="campaign-subject-grid"></div>
+
+            <div class="campaign-subject-detail" id="campaign-subject-detail">
+              <div>
+                <p class="campaign-kicker" id="campaign-subject-kicker">数学</p>
+                <h3 id="campaign-subject-title">数学训练 · F 级</h3>
+                <p id="campaign-subject-desc">从简单四则运算开始，训练牛客娘的计算直觉。</p>
+                <label class="campaign-rank-select-label" for="campaign-practice-rank">练习段位</label>
+                <select class="campaign-rank-select" id="campaign-practice-rank"></select>
+              </div>
+              <div class="campaign-mode-grid">
+                <button class="campaign-mode-card" id="btn-start-math-practice" type="button">
+                  <span>练习</span>
+                  <strong>60 秒连续做题</strong>
+                  <em>不限次数，按表现获得时间之砂</em>
+                </button>
+                <button class="campaign-mode-card" id="btn-start-math-exam" type="button">
+                  <span>考试</span>
+                  <strong>60 秒答对 8 题</strong>
+                  <em>消耗答题券，答错扣 5 秒并换题</em>
+                </button>
+              </div>
+            </div>
+
+            <div class="math-session-panel hidden" id="math-session-panel">
+              <div class="math-session-topbar">
                 <div>
-                  <p class="campaign-kicker">World 0</p>
-                  <h2 class="campaign-title">World 0</h2>
+                  <p class="campaign-kicker" id="math-session-mode">练习</p>
+                  <h3 id="math-session-title">数学训练</h3>
                 </div>
-                <span class="campaign-total-stars tooltip-btn" id="campaign-total-stars" data-tooltip="攻击 +0%&#10;血量 +0%">
-                  ⭐ × <em id="campaign-total-stars-value">0</em>
-                </span>
-              </div>
-              <p class="campaign-description" id="campaign-map-description">点击地图中的小方块进入关卡。未来这里会扩展出分支路线。</p>
-            </div>
-            <div class="campaign-map-board">
-              <div class="campaign-map-path"></div>
-              <div class="campaign-node-grid" id="campaign-node-grid"></div>
-            </div>
-            <p class="campaign-map-meta" id="campaign-map-meta"></p>
-          </div>
-
-          <div class="campaign-stage-view hidden" id="campaign-stage-view">
-            <div class="campaign-stage-topbar">
-              <button class="action-btn campaign-back-btn" id="btn-campaign-back" type="button">返回地图</button>
-            </div>
-
-            <div class="campaign-display-card">
-              <p class="campaign-kicker" id="campaign-kicker">World 0</p>
-              <h2 class="campaign-title" id="campaign-title">Stage 0-1 · 第一声心跳</h2>
-              <p class="campaign-description" id="campaign-description"></p>
-
-              <div class="campaign-stage-stats">
-                <span class="campaign-stat-pill">操作数 <em id="campaign-op-count">0</em></span>
-                <span class="campaign-stat-pill">最佳 <em id="campaign-best-op">-</em></span>
-                <span class="campaign-stat-pill">星级条件 <em id="campaign-star-rule">≤ 2 次</em></span>
-              </div>
-
-              <div class="campaign-balance-board" id="campaign-balance-board">
-                <div class="campaign-balance-beam" aria-hidden="true"></div>
-                <div class="campaign-balance-pillar" aria-hidden="true"></div>
-                <div class="campaign-balance-pan">
-                  <div class="campaign-drop-zone" id="campaign-left-zone" data-zone="left"></div>
-                </div>
-                <div class="campaign-balance-center" aria-hidden="true"></div>
-                <div class="campaign-balance-pan">
-                  <div class="campaign-fixed-zone" id="campaign-right-zone" data-zone="right"></div>
+                <div class="math-session-stats">
+                  <span>剩余 <strong id="math-session-time">60.0s</strong></span>
+                  <span>正确 <strong id="math-session-correct">0</strong></span>
                 </div>
               </div>
-
-              <div class="campaign-stock-wrap">
-                <span class="campaign-question-label">拖拽区</span>
-                <div class="campaign-drop-zone campaign-stock-zone" id="campaign-stock-zone" data-zone="stock"></div>
+              <div class="math-question-card">
+                <span class="math-question-source" id="math-question-source">第 1 关</span>
+                <div class="math-question-expression" id="math-question-expression">1 + 1</div>
+                <form class="math-answer-form" id="math-answer-form">
+                  <input id="math-answer-input" type="number" inputmode="numeric" autocomplete="off" placeholder="输入答案">
+                  <button class="modal-btn" type="submit">提交</button>
+                </form>
+                <p class="math-session-feedback" id="math-session-feedback"></p>
               </div>
-
-              <p class="campaign-feedback" id="campaign-feedback"></p>
-              <p class="campaign-reward" id="campaign-reward"></p>
+              <button class="modal-btn modal-btn-close" id="btn-end-math-session" type="button">结束</button>
             </div>
           </div>
         </div>
@@ -220,7 +289,7 @@
         <div class="practice-display hidden" id="practice-display">
           <!-- 1. 属性栏 -->
           <div class="practice-block attributes-block">
-            <span class="attr-help tooltip-btn tooltip-multiline" id="attr-formula-help" data-tooltip="攻击 = 思维 × 知识点 × 手速&#10;血量 = 码力 × 耐力">?</span>
+            <span class="attr-help tooltip-btn tooltip-multiline" id="attr-formula-help" data-tooltip="攻击 = 思维 × 知识点 × 手速 × 加成&#10;血量 = 码力 × 耐力 × 加成&#10;成就点会同时提升攻击和血量">?</span>
             <div class="attr-row">
               <span class="attr-item">思维 <em id="attr-siwei">1</em></span>
               <span class="attr-item">知识点 <em id="attr-zhishi">1</em></span>
@@ -273,6 +342,12 @@
           <div class="practice-block map-block">
             <div class="map-left">
               <button class="challenge-column-btn" id="btn-challenge" disabled>练习</button>
+              <div class="battle-mode-toggle grind-mode-unlockable locked" id="battle-mode-toggle">
+                <button class="battle-mode-btn active tooltip-btn" id="btn-mode-push" type="button"
+                  data-tooltip="推关模式：挑战当前未通关题目，推进主线">推关</button>
+                <button class="battle-mode-btn tooltip-btn" id="btn-mode-grind" type="button"
+                  data-tooltip="刷题模式：重复刷已通关题，消耗复习券并获得草稿纸">刷题</button>
+              </div>
               <button class="auto-challenge-btn auto-challenge-on hidden" id="btn-auto-challenge" title="点击关闭自动练习">自动练习</button>
             </div>
             <div class="map-right">
@@ -290,8 +365,9 @@
     <button class="save-menu-btn" id="btn-auto-save" title="保存到浏览器缓存">自动保存</button>
     <button class="save-menu-btn" id="btn-export" title="导出 Base64 存档">保存</button>
     <button class="save-menu-btn" id="btn-import" title="从 Base64 加载存档">加载</button>
-    <button class="save-menu-btn save-menu-btn-reset" id="btn-reset" title="重置所有数据">重置数据</button>
-    <button class="save-menu-btn" id="btn-version" title="查看版本更新">版本 1.0.0</button>
+    <button class="save-menu-btn" id="btn-achievements" title="查看成就">成就</button>
+    <button class="save-menu-btn" id="btn-settings" title="打开设置">设置</button>
+    <button class="save-menu-btn" id="btn-version" title="查看版本更新">版本 1.0.1</button>
   </div>
 
   <!-- 保存对话框：显示 Base64，可复制 -->
@@ -326,6 +402,16 @@
     <div class="modal-content">
       <h3>版本更新</h3>
       <div class="changelog-content">
+                        <div class="changelog-version">
+                            <strong>v1.0.1</strong>
+                            <ul>
+                                <li>新增关卡系统</li>
+                                <li>新增成就系统</li>
+                                <li>新增资源兑换与快进功能</li>
+                                <li>新增设置入口，并将重置数据移动到设置中</li>
+                                <li>优化部分界面与存档内容</li>
+                            </ul>
+                        </div>
         <div class="changelog-version">
           <strong>v1.0.0</strong>
           <ul>
@@ -342,6 +428,48 @@
     </div>
   </div>
 
+  <div class="modal hidden" id="modal-settings">
+    <div class="modal-content modal-content-settings">
+      <h3>设置</h3>
+      <div class="settings-section">
+        <h4>存档</h4>
+        <p class="modal-hint">游戏会自动保存，也可以通过底部“保存/加载”手动备份。</p>
+        <button class="modal-btn save-menu-btn-reset" id="btn-reset" type="button">重置数据</button>
+      </div>
+      <div class="settings-section">
+        <h4>界面</h4>
+        <p class="modal-hint">数值会自动使用缩写显示，成就入口已移动到底部菜单。</p>
+      </div>
+      <div class="settings-section">
+        <h4>版本</h4>
+        <p class="modal-hint">当前版本：v1.0.1</p>
+      </div>
+      <button class="modal-btn modal-btn-close" id="btn-close-settings" type="button">关闭</button>
+    </div>
+  </div>
+
+  <div class="modal hidden modal-achievements" id="modal-achievements">
+    <div class="modal-content modal-content-achievements">
+      <div class="achievement-modal-header">
+        <section class="achievement-panel-summary">
+          <div>
+            <h2>成就</h2>
+            <p>成就点会直接提升牛客娘的攻击和血量。</p>
+          </div>
+          <div class="achievement-points-box">
+            <span>成就点</span>
+            <strong id="achievement-total-points">0</strong>
+          </div>
+        </section>
+        <button class="modal-btn modal-btn-close" id="btn-close-achievements" type="button">关闭</button>
+      </div>
+      <div class="achievement-category-tabs" id="achievement-category-tabs"></div>
+      <div class="achievement-list" id="achievement-list"></div>
+    </div>
+  </div>
+
+  <div class="achievement-toast-container" id="achievement-toast-container" aria-live="polite"></div>
+
   <div class="modal hidden" id="modal-campaign-success">
     <div class="modal-content modal-content-campaign-success">
       <h3>通关成功</h3>
@@ -354,6 +482,62 @@
         <div class="card-reward-item" id="campaign-success-card-item"></div>
       </div>
       <button class="modal-btn" id="btn-campaign-success-confirm">返回地图</button>
+    </div>
+  </div>
+
+  <div class="modal hidden" id="modal-time-sand">
+    <div class="modal-content modal-content-time-sand">
+      <h3>时间之砂</h3>
+      <p class="modal-hint">练习表现越好，获得的时间之砂越多。时间之砂可用于快进挂机，也可兑换答题券。</p>
+      <div class="exchange-balance-row">
+        <span>当前持有</span>
+        <strong id="exchange-time-sand-balance">0</strong>
+      </div>
+
+      <section class="exchange-section">
+        <h4>兑换全局快进</h4>
+        <p class="exchange-desc">快进会结算挂机资源与主线图对战进度。</p>
+        <div class="exchange-control">
+          <button class="exchange-step-btn" id="btn-ff-minus" type="button">-</button>
+          <strong><span id="exchange-ff-minutes">10</span> 分钟</strong>
+          <button class="exchange-step-btn" id="btn-ff-plus" type="button">+</button>
+          <button class="exchange-max-btn" id="btn-ff-max" type="button">最大</button>
+        </div>
+        <p class="exchange-cost">消耗 <span id="exchange-ff-cost">10000</span> 时间之砂</p>
+        <button class="modal-btn" id="btn-exchange-fast-forward" type="button">兑换并快进</button>
+      </section>
+
+      <section class="exchange-section">
+        <h4>兑换答题券</h4>
+        <p class="exchange-desc">答题券用于参加考试，考试成功可晋级。</p>
+        <div class="exchange-control">
+          <button class="exchange-step-btn" id="btn-ticket-minus" type="button">-</button>
+          <strong><span id="exchange-ticket-count">1</span> 张</strong>
+          <button class="exchange-step-btn" id="btn-ticket-plus" type="button">+</button>
+          <button class="exchange-max-btn" id="btn-ticket-max" type="button">最大</button>
+        </div>
+        <p class="exchange-cost">消耗 <span id="exchange-ticket-cost">10000</span> 时间之砂</p>
+        <button class="modal-btn" id="btn-exchange-ticket" type="button">兑换答题券</button>
+      </section>
+
+      <p class="modal-status" id="exchange-status"></p>
+      <button class="modal-btn modal-btn-close" id="btn-close-time-sand" type="button">关闭</button>
+    </div>
+  </div>
+
+  <div class="fast-forward-clock hidden" id="fast-forward-clock">
+    <div class="clock-face">
+      <span class="clock-hand clock-hour"></span>
+      <span class="clock-hand clock-minute"></span>
+    </div>
+  </div>
+
+  <div class="modal hidden" id="modal-fast-forward-report">
+    <div class="modal-content modal-content-fast-forward-report">
+      <h3>快进结算</h3>
+      <p class="modal-hint" id="fast-forward-report-summary"></p>
+      <div class="fast-forward-report-list" id="fast-forward-report-list"></div>
+      <button class="modal-btn" id="btn-close-fast-forward-report" type="button">确认</button>
     </div>
   </div>
 
@@ -385,9 +569,12 @@
 
   <script src="js/utils.js"></script>
   <script src="js/resources.js"></script>
+  <script src="js/buildings.js"></script>
+  <script src="js/math_campaign.js"></script>
   <script src="js/campaign/data.js"></script>
   <script src="js/campaign/core.js"></script>
   <script src="js/skilltree.js"></script>
+  <script src="js/achievements.js"></script>
   <script src="js/attributes.js"></script>
   <script src="js/exam.js"></script>
   <script src="js/battle.js"></script>

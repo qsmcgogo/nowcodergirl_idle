@@ -18,9 +18,11 @@ const Save = {
       skilltree: SkillTree.getSnapshot(),
       exam: Exam.getSnapshot(),
       battle: Battle.getSnapshot(),
+      buildings: Buildings.getSnapshot(),
       cards: Cards.getSnapshot(),
+      achievements: Achievements.getSnapshot(),
       lastUpdateTime: Game.lastUpdateTime,
-      version: 7
+      version: 10
     };
   },
 
@@ -42,8 +44,12 @@ const Save = {
     if (data.exam) Exam.loadSnapshot(data.exam);
     if (data.battle) Battle.loadSnapshot(data.battle);
     else if (data.version < 4) Battle.loadSnapshot(null);
+    if (data.buildings) Buildings.loadSnapshot(data.buildings);
+    else Buildings.loadSnapshot(null);
     if (data.cards) Cards.loadSnapshot(data.cards);
     else Cards.loadSnapshot(null);
+    if (data.achievements) Achievements.loadSnapshot(data.achievements);
+    else Achievements.loadSnapshot(null);
     if (data.lastUpdateTime) Game.lastUpdateTime = data.lastUpdateTime;
     return true;
   },
